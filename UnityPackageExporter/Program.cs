@@ -21,6 +21,8 @@ namespace UnityPackageExporter
             List<string> assets = new List<string>();
             List<string> directories = new List<string>();
 
+            bool allOverride = false;
+
             for (int i = 0; i < args.Length; i++)
             {
                 switch (args[i])
@@ -49,6 +51,10 @@ namespace UnityPackageExporter
                         directories.AddRange(args[++i].Split(','));
                         break;
 
+                    case "-a":
+                        allOverride = true;
+                        break;
+
                     default:
                         Console.WriteLine("Unkown Argument: {0}", args[i]);
                         break;
@@ -71,12 +77,22 @@ namespace UnityPackageExporter
             var stopwatch = new Stopwatch();
             stopwatch.Start();
             { 
-                var files = directories
-                    .SelectMany(dir => Directory.GetFiles(Path.Combine(unityProject, dir), "*", SearchOption.AllDirectories))
-                    .Union(assets)
-                    .Where(f => Path.GetExtension(f) != ".meta");
+                if (allOverride)
+                {
+                    Console.WriteLine("Packing All....");
+                    var files = Directory.GetFiles(unityProject + "Assets/", "*", SearchOption.AllDirectories).Where(f => Path.GetExtension(f) != ".meta");
+                    PackAssets(output, unityProject, files);
+                }
+                else
+                {
+                    Console.WriteLine("Packing Some....");
+                    var files = directories
+                        .SelectMany(dir => Directory.GetFiles(Path.Combine(unityProject, dir), "*", SearchOption.AllDirectories))
+                        .Union(assets)
+                        .Where(f => Path.GetExtension(f) != ".meta");
 
-                PackAssets(output, unityProject, files);
+                    PackAssets(output, unityProject, files);
+                }
             }
             stopwatch.Stop();
 
@@ -118,7 +134,7 @@ namespace UnityPackageExporter
             //If the file doesnt have a meta then skip it
             if (!File.Exists(metaFile))
             {
-                Console.WriteLine("SKIP: " + metaFile);
+                Console.WriteLine("META: " + metaFile);
                 return;
             }
 
