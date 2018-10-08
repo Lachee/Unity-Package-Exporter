@@ -88,15 +88,16 @@ namespace UnityPackageExporter
                 if (allOverride)
                 {
                     Console.WriteLine("Packing All....");
-                    string path = Path.Combine(unityProject, "Assets\\");
 
+                    string path = Path.Combine(unityProject, "Assets\\");
                     Console.WriteLine("Looking '{0}'", path);
-                    var files = Directory.GetFiles(path, "*", SearchOption.AllDirectories);
+
+                    var files = Directory.GetFiles(path, "*", SearchOption.AllDirectories).Where(f => Path.GetExtension(f) != ".meta");
                     PackAssets(output, unityProject, files);
                 }
                 else
                 {
-                    Console.WriteLine("Packing Some....");
+                    Console.WriteLine("Packing Some....");                    
                     var files = directories
                         .SelectMany(dir => Directory.GetFiles(Path.Combine(unityProject, dir), "*", SearchOption.AllDirectories))
                         .Union(assets)
