@@ -52,6 +52,7 @@ namespace UnityPackageExporter
                         break;
 
                     case "-a":
+                        Console.WriteLine("Overrides Enabled");
                         allOverride = true;
                         break;
 
@@ -61,7 +62,7 @@ namespace UnityPackageExporter
                 }
             }
 
-            if (!allOverride && string.IsNullOrEmpty(unityProject))
+            if (string.IsNullOrEmpty(unityProject))
             {
                 Console.WriteLine("-project is null or empty!");
                 return;
@@ -80,7 +81,10 @@ namespace UnityPackageExporter
                 if (allOverride)
                 {
                     Console.WriteLine("Packing All....");
-                    var files = Directory.GetFiles(unityProject + "Assets/", "*", SearchOption.AllDirectories).Where(f => Path.GetExtension(f) != ".meta");
+                    string path = Path.Combine(unityProject, "Assets\\");
+
+                    Console.WriteLine("Looking '{0}'", path);
+                    var files = Directory.GetFiles(path, "*", SearchOption.AllDirectories);
                     PackAssets(output, unityProject, files);
                 }
                 else
