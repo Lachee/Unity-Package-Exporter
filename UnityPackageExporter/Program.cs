@@ -18,59 +18,8 @@ namespace UnityPackageExporter
             CreatePack(args);
         }
 
-        static void GuidShit() { 
-            string project = @"D:\Users\Lachee\Documents\C# Projects\2015 Projects\discord-rpc-csharp\Unity Example\";
-            string file = @"Assets\Discord RPC\Editor\CharacterLimitAttributeDrawer.cs";
-            string path = project + file;
-
-            string contents = File.ReadAllText(path + ".meta");
-            int guidindex = contents.IndexOf("guid: ");
-            string readGUID = contents.Substring(guidindex + 6, 32);
-            Console.WriteLine(readGUID);
-
-            string calcGUID = CalculateGUID(project, file, true);
-            Console.WriteLine(calcGUID);
-
-           calcGUID = CalculateGUID(project, file, false);
-           Console.WriteLine(calcGUID);
-           
-           file = file.Remove(0, 7);
-           calcGUID = CalculateGUID(project, file, true);
-           Console.WriteLine(calcGUID);
-           
-           calcGUID = CalculateGUID(project, file, false);
-           Console.WriteLine(calcGUID);
-
-            Console.WriteLine("Match: {0}", readGUID == calcGUID);
-            Console.ReadKey();
-        }
-
-        private static string CalculateGUID(string project, string file, bool replace)
-        {
-            string text = "";
-            Guid guid = Guid.Empty;
-
-            FileInfo fi = new FileInfo(project + file);
-            string hashable = file; // file;// +  fi.CreationTime;
-
-            //hashable = hashable.ToLowerInvariant();
-            if (replace) hashable = hashable.Replace('\\', '/');
-
-            using (MD5 md5 = MD5.Create())
-            {
-                byte[] hash = md5.ComputeHash(Encoding.ASCII.GetBytes(hashable));
-                //hash.Reverse();
-                guid = new Guid(hash);
-            }
-
-
-            foreach (var byt in guid.ToByteArray()) text += string.Format("{0:X2}", byt);
-            return text.ToLowerInvariant();
-        }
-
         static void CreatePack(string[] args)
         { 
-
             Console.WriteLine(">>>> Unity Package Exporter by Lachee");
 
             string unityProject = null;
@@ -290,19 +239,55 @@ namespace UnityPackageExporter
 }
 
 #if DONTDOTHIS
-        using (var gzoStream = new GZipOutputStream(outStream))
-                {
-                    using (var tarArchive = TarArchive.CreateOutputTarArchive(gzoStream))
-                    {
-                        var assetEntry = TarEntry.CreateEntryFromFile(assetFile);
-                        assetEntry.Name = $"{guid}/asset";
-                        tarArchive.WriteEntry(assetEntry, true);
 
-                        var metaEntry = TarEntry.CreateEntryFromFile(metaFile);
-                        metaEntry.Name = $"{guid}/asset.meta";
-                        tarArchive.WriteEntry(metaEntry, true);
-                        
-                        AddTextFile(tarArchive, $"{guid}/pathname", "test.png");
-                    }
-                }
+        static void GuidShit() { 
+            string project = @"D:\Users\Lachee\Documents\C# Projects\2015 Projects\discord-rpc-csharp\Unity Example\";
+            string file = @"Assets\Discord RPC\Editor\CharacterLimitAttributeDrawer.cs";
+            string path = project + file;
+
+            string contents = File.ReadAllText(path + ".meta");
+            int guidindex = contents.IndexOf("guid: ");
+            string readGUID = contents.Substring(guidindex + 6, 32);
+            Console.WriteLine(readGUID);
+
+            string calcGUID = CalculateGUID(project, file, true);
+            Console.WriteLine(calcGUID);
+
+           calcGUID = CalculateGUID(project, file, false);
+           Console.WriteLine(calcGUID);
+           
+           file = file.Remove(0, 7);
+           calcGUID = CalculateGUID(project, file, true);
+           Console.WriteLine(calcGUID);
+           
+           calcGUID = CalculateGUID(project, file, false);
+           Console.WriteLine(calcGUID);
+
+            Console.WriteLine("Match: {0}", readGUID == calcGUID);
+            Console.ReadKey();
+        }
+
+        private static string CalculateGUID(string project, string file, bool replace)
+        {
+            string text = "";
+            Guid guid = Guid.Empty;
+
+            FileInfo fi = new FileInfo(project + file);
+            string hashable = file; // file;// +  fi.CreationTime;
+
+            //hashable = hashable.ToLowerInvariant();
+            if (replace) hashable = hashable.Replace('\\', '/');
+
+            using (MD5 md5 = MD5.Create())
+            {
+                byte[] hash = md5.ComputeHash(Encoding.ASCII.GetBytes(hashable));
+                //hash.Reverse();
+                guid = new Guid(hash);
+            }
+
+
+            foreach (var byt in guid.ToByteArray()) text += string.Format("{0:X2}", byt);
+            return text.ToLowerInvariant();
+        }
+
 #endif
