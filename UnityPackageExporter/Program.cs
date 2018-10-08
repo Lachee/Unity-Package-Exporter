@@ -61,13 +61,13 @@ namespace UnityPackageExporter
                 }
             }
 
-            if (string.IsNullOrEmpty(unityProject))
+            if (!allOverride && string.IsNullOrEmpty(unityProject))
             {
                 Console.WriteLine("-project is null or empty!");
                 return;
             }
 
-            if (assets.Count == 0 && directories.Count == 0)
+            if (!allOverride && assets.Count == 0 && directories.Count == 0)
             {
                 Console.WriteLine("No assets or directories supplied");
                 return;
