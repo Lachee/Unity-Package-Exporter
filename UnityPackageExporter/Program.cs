@@ -131,22 +131,41 @@ namespace UnityPackageExporter
                 return;
             }
 
+            //Make sure its not a meta file
+            if (Path.GetExtension(assetFile).ToLowerInvariant() == ".meta")
+            {
+                //Siently skip meta files
+                return;
+            }
+
             //Get all the paths
             string relativePath = Path.GetRelativePath(unityProjectRoot, assetFile);
-            string metaFile = $"{assetFile}.meta";            
+            string metaFile = $"{assetFile}.meta";
+            string metaContents = null;
 
             //If the file doesnt have a meta then skip it
             if (!File.Exists(metaFile))
             {
-                Console.WriteLine("META: " + metaFile);
+                //Meta file is missing so we have to generate it ourselves.
+                Console.WriteLine("META: " + assetFile);
+
+                var builder = new System.Text.StringBuilder();
+                builder.Append("fileFormatVersion: 2\n");
+                builder.Append("guid: " + new Guid()).Append("\n");
+                builder.Append("timeCreated: 1521360783").Append("\n");
+                builder.Append("licenseType: Free").Append("\n");
+                metaContents = builder.ToString();
                 return;
+            }
+            else
+            {
+                //Read the meta contents
+                metaContents = File.ReadAllText(metaFile);
             }
 
             //Add the file
             Console.WriteLine("ADD: " + relativePath);
-
-            //Get the meta contents and the guid from it. We will directly write this to save some write steps
-            string metaContents = File.ReadAllText(metaFile);
+            
 
             //Get the GUID from a quick substring
             int guidIndex = metaContents.IndexOf("guid: ");
