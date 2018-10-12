@@ -41,5 +41,5 @@ The important part is the `dotnet run`. As you can see I do a standard run with 
 
 This package builder _requires_ the `.meta` files unity generates to properly pack the assets. If you are ignoring them in the .gitignore, this may cause issues such as incorrect import settings and broken links after the build. Please make sure you _allow .meta files_ in your repository.
 
-## Maintence
+## Maintenance
 This is a project I am using personally. I made it soley for this project. If you have any issues please make a new github issue, but I might not respond. I dont plan to actively maintain this as much as I do with my other library.
