@@ -9,6 +9,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 
+//-project "C:\Users\TasGDS\Documents\GitHub\discord-rpc-csharp\Unity Example\\" -dir "Assets\\"
 namespace UnityPackageExporter
 {
     class Program
@@ -24,7 +25,8 @@ namespace UnityPackageExporter
 
             string unityProject = null;
             string output = "package.unitypackage";
-
+            
+            List<string> unpacks = new List<string>();
             List<string> assets = new List<string>();
             List<string> directories = new List<string>();
 
@@ -34,6 +36,10 @@ namespace UnityPackageExporter
             {
                 switch (args[i])
                 {
+                    case "-unpack":
+                        unpacks.Add(args[++i]);
+                        break;
+
                     case "-output":
                         output = args[++i];
                         break;
@@ -75,6 +81,12 @@ namespace UnityPackageExporter
                 return;
             }
 
+            foreach(var pack in unpacks)
+            {
+                Console.WriteLine("Unpacking unitypackage '{0}'", pack);
+                UnpackAssets(pack, unityProject);
+            }
+
             if (!allOverride && assets.Count == 0 && directories.Count == 0)
             {
                 Console.WriteLine("No assets or directories supplied");
@@ -109,6 +121,83 @@ namespace UnityPackageExporter
             stopwatch.Stop();
 
             Console.WriteLine("Finished packing. Took {0}ms", stopwatch.ElapsedMilliseconds);
+        }
+
+        public static void UnpackAssets(string package, string unityProjectRoot, bool allowOverride = true)
+        {
+            Console.WriteLine("Unpacking Package '{0}' into ", package, unityProjectRoot);
+
+            Dictionary<string, PackageExtraction> assets = new Dictionary<string, PackageExtraction>();
+
+            if (!File.Exists(package))
+            {
+                Console.WriteLine("ERR: File not found!");
+                return;
+            }
+
+            using (var fileStream = new FileStream(package, FileMode.Open))
+            {
+                using (var gzoStream = new GZipInputStream(fileStream))
+                using (var tarStream = new TarInputStream(gzoStream))
+                {
+                    TarEntry tarEntry;
+                    while ((tarEntry = tarStream.GetNextEntry()) != null)
+                    {
+                        if (tarEntry.IsDirectory)
+                            continue;
+                        
+                        string[] parts = tarEntry.Name.Split('/');
+                        string file = parts[1];
+                        string guid = parts[0];
+                        byte[] data = null;
+
+                        //Create a new memory stream and read the entries into it.
+                        using (MemoryStream mem = new MemoryStream())
+                        {
+                            tarStream.ReadNextFile(mem);
+                            data = mem.ToArray();
+                        }
+
+                        //Make sure we actually read data
+                        if (data == null)
+                        {
+                            Console.WriteLine("NDATA: {0}", tarEntry.Name);
+                            continue;
+                        }
+
+                        //Add a new element
+                        if (!assets.ContainsKey(guid))
+                            assets.Add(guid, new PackageExtraction());
+
+                        switch(file)
+                        {
+                            case "asset":
+                                assets[guid].Asset = data;
+                                break;
+
+                            case "asset.meta":
+                                assets[guid].Metadata = data;
+                                break;
+
+                            case "pathname":
+                                string path = Encoding.ASCII.GetString(data);
+                                assets[guid].PathName = path;
+                                break;
+
+                            default:
+                                Console.WriteLine("SKIP: {0}", tarEntry.Name);
+                                break;
+                        }
+
+                        if (assets[guid].IsWriteable())
+                        {
+                            Console.WriteLine("WRITE: {0}", assets[guid].PathName);
+                            assets[guid].Write(unityProjectRoot);
+                            assets.Remove(guid);
+                        }
+                    }
+                }
+            }
         }
 
         public static void PackAssets(string packageOutput, string unityProjectRoot, IEnumerable<string> assets, bool overwrite = true)
@@ -235,6 +324,53 @@ namespace UnityPackageExporter
 
             //Close the entry
             stream.CloseEntry();
+        }
+
+        public static long ReadNextFile(this TarInputStream tarIn, Stream outStream)
+        {
+            long totalRead = 0;
+            byte[] buffer = new byte[4096];
+            bool isAscii = true;
+            bool cr = false;
+
+            int numRead = tarIn.Read(buffer, 0, buffer.Length);
+            int maxCheck = Math.Min(200, numRead);
+
+            totalRead += numRead;
+
+            for (int i = 0; i < maxCheck; i++)
+            {
+                byte b = buffer[i];
+                if (b < 8 || (b > 13 && b < 32) || b == 255)
+                {
+                    isAscii = false;
+                    break;
+                }
+            }
+
+            while (numRead > 0)
+            {
+                if (isAscii)
+                {
+                    // Convert LF without CR to CRLF. Handle CRLF split over buffers.
+                    for (int i = 0; i < numRead; i++)
+                    {
+                        byte b = buffer[i];     // assuming plain Ascii and not UTF-16
+                        if (b == 10 && !cr)     // LF without CR
+                            outStream.WriteByte(13);
+                        cr = (b == 13);
+
+                        outStream.WriteByte(b);
+                    }
+                }
+                else
+                    outStream.Write(buffer, 0, numRead);
+
+                numRead = tarIn.Read(buffer, 0, buffer.Length);
+                totalRead += numRead;
+            }
+
+            return totalRead;
         }
     }
 }
