@@ -24,6 +24,9 @@ Here are the set of commands:
             -dirs "Assets\\Discord RPC\\Editor\\,Assets\\Discord RPC\\Scripts\\"
             
 -a        Adds all files in the asset folder.
+
+-unpack   Unpacks a .unitypackage into the project before attempting to pack the actual target package. (Useful for dependencies).
+            -unpack "Assets\\dependency_a.unitypackage" -unpack "Assets\\dependency_b.unitypackage"
 ```
 
 ## App Voyer
