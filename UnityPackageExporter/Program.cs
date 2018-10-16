@@ -10,6 +10,7 @@ using System.Security.Cryptography;
 using System.Text;
 
 //-project "C:\Users\TasGDS\Documents\GitHub\discord-rpc-csharp\Unity Example\\" -dir "Assets\\"
+//-project bin/ExampleProject/ -unpack package.unitypackage
 namespace UnityPackageExporter
 {
     class Program
