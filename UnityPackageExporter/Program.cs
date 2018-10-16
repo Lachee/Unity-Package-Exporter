@@ -101,7 +101,7 @@ namespace UnityPackageExporter
                 {
                     Console.WriteLine("Packing All....");
 
-                    string path = Path.Combine(unityProject, "Assets\\");
+                    string path = Path.Combine(unityProject, "Assets");
                     Console.WriteLine("Looking '{0}'", path);
 
                     var files = Directory.GetFiles(path, "*", SearchOption.AllDirectories).Where(f => Path.GetExtension(f) != ".meta");
