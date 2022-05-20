@@ -30,6 +30,7 @@ namespace UnityPackageExporter
             List<string> unpacks = new List<string>();
             List<string> assets = new List<string>();
             List<string> directories = new List<string>();
+            List<string> excludes = new List<string>();
 
             bool allOverride = false;
 
@@ -65,6 +66,10 @@ namespace UnityPackageExporter
                         directories.AddRange(args[++i].Split(','));
                         break;
 
+                    case "-exclude":
+                        excludes.Add(args[++i]);
+                        break;
+
                     case "-a":
                         Console.WriteLine("Overrides Enabled");
                         allOverride = true;
@@ -88,6 +93,14 @@ namespace UnityPackageExporter
                 UnpackAssets(pack, unityProject);
             }
 
+            // Remove excluded directories and files
+            foreach(var exclude in excludes)
+            {
+                assets.Remove(exclude);
+                directories.Remove(exclude);
+            }
+
+            // CHeck
             if (!allOverride && assets.Count == 0 && directories.Count == 0)
             {
                 Console.WriteLine("No assets or directories supplied");
