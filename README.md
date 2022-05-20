@@ -2,43 +2,64 @@
 This library will export a series of files from a Unity3D project into a Unity Package (.unitypackage). This is very useful for **automated builds** of packages using _app voyer_. I use this myself on my [Discord Rich Presence](https://github.com/Lachee/discord-rpc-csharp) library so I dont have to rebuild the package every time.
 
 ## Usage
-Usage kinda simple. Its a command line interface with no GUI, so it might be a bit tricky to setup.
-Here are the set of commands:
+Now with the improved CLI provided by System.CommandLine, simply run the --help to get options.
 ```
--output   The folder to output the package too.
-            -output "mypackage.unitypackage"
-            
--project  The path to the unity project root directory. This is the only required field.
-            -project "D:\\User\\Lachee\\Documents\\Unity Project\\discord-rpc-csharp\\"
-            
--asset    A individual asset to add to the pack. Can be added multiple times. Relative to project root.
-            -asset "Assets\\Discord RPC\\DiscordManager.prefab" -asset "Assets\\Discord RPC\\ReadMe.rtf"
-            
--assets   An array of assets to add to the pack. Can be added multiple times defined by CSV.
-            -assets "Assets\\Discord RPC\\DiscordManager.prefab,Assets\\Discord RPC\\ReadMe.rtf"
-            
--dir      A individual directory relative to the root to add. It will add all files and sub directories.
-            -dir "Assets\\Discord RPC\\Editor\\"
-            
--dirs      An array of directories relative to the root to add. It will add all files and sub directories.
-            -dirs "Assets\\Discord RPC\\Editor\\,Assets\\Discord RPC\\Scripts\\"
-            
--a        Adds all files in the asset folder.
+-$ dotnet ../tools/UnityPackageExporter.dll --help
+Description:
+  Exports projects to Unity packages
 
--unpack   Unpacks a .unitypackage into the project before attempting to pack the actual target package.
-            -unpack "Assets\\dependency_a.unitypackage" -unpack "Assets\\dependency_b.unitypackage"
+Usage:
+  UnityPackageExporter [options]
+
+Options:
+  -i, --input, --project <project>  Project to pack
+  -o, --output <output>             Output package
+  -a, --assets <assets>             Adds an asset to the pack. Supports glob matching. [default: **.*]
+  -e, --exclude <exclude>           Excludes an asset from the pack. Supports glob matching. []
+  --unpack <unpack>                 Unpacks an asset bundle before proceeding. Does not support glob matching. []
+  --version                         Show version information
+  -?, -h, --help                    Show help and usage information
 ```
 
-## App Voyer
-Here is a simple powershell buildscript that I use on my project:
-```ps1
-mkdir C:\projects\Unity-Package-Exporter
-git clone https://github.com/Lachee/Unity-Package-Exporter.git C:\projects\Unity-Package-Exporter
-cd C:\projects\Unity-Package-Exporter
-dotnet run --project UnityPackageExporter -a -project "C:\\projects\\discord-rpc-csharp\\Unity Example\\" -output "C:\\projects\\discord-rpc-csharp\\DiscordRPC_Unity_Built.unitypackage"
+## Github Actions
+
+Below is a GitHub action for packaging a Unity Package styled project (no Assets folder).
+```yml
+
+jobs:
+  env:
+    package_path: "~/lachee-utilities.unitypackage"
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+      - uses: actions/setup-dotnet@v2
+
+      # Install the packager. We are putting it outside the working directory so we dont include it by mistake
+      - name: Install Unity Packager
+        run: |
+          git clone https://github.com/Lachee/Unity-Package-Exporter.git "../tools/unity-package-exporter"
+          dotnet publish -c Release -o ../tools "../tools/unity-package-exporter/UnityPackageExporter"
+        
+      # Pack the assets
+      - name: Package Project
+        run: |
+          echo "Creating package ${{env.package_path}}"
+          dotnet ../tools/UnityPackageExporter.dll --project ./ --output package.unitypackage --exclude ".*" --exclude "Documentation"
+        
+      # Upload artifact
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3.0.0
+        with:
+          name: Unity Package
+          path: ${{env.package_path}}   
 ```
 
-The important part is the `dotnet run`. As you can see I do a standard run with dotnet, then define the project directory and output directory to be within my actual repo. Its also imporant to note that I cd into this folder.
+**NOTE**
+
+We are doing a publish then running the dll to avoid .NET bugs involving running projects.
+
 
 **IMPORTANT**
 
