@@ -1,8 +1,11 @@
 ﻿using ICSharpCode.SharpZipLib.GZip;
 using ICSharpCode.SharpZipLib.Tar;
+using Microsoft.Extensions.FileSystemGlobbing;
+using Microsoft.Extensions.FileSystemGlobbing.Abstractions;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.CommandLine;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -15,129 +18,70 @@ namespace UnityPackageExporter
 {
     class Program
     {
-        static void Main(string[] args)
+        static int Main(string[] args) 
         {
-            CreatePack(args);
-        }
+            var projectOption = new Option<DirectoryInfo>(new[] { "--project", "--input", "-i" },
+                   description: "Project to pack"
+            );
 
-        static void CreatePack(string[] args)
-        { 
-            Console.WriteLine(">>>> Unity Package Exporter by Lachee");
+            var outputOption = new Option<FileInfo>(new[] { "--output", "-o" },
+                    description: "Output package"
+            );
 
-            string unityProject = null;
-            string output = "package.unitypackage";
-            
-            List<string> unpacks = new List<string>();
-            List<string> assets = new List<string>();
-            List<string> directories = new List<string>();
-            List<string> excludes = new List<string>();
+            var assetOption = new Option<IEnumerable<string>>(new[] { "--assets", "-a" },
+                    getDefaultValue: () => new string[] { "**.*" },
+                    description: "Adds an asset to the pack. Supports glob matching."
+            );
 
-            bool allOverride = false;
+            var excludeOption = new Option<IEnumerable<string>>(new[] { "--exclude", "-e" },
+                getDefaultValue: () => new string[] { },
+                description: "Excludes an asset from the pack. Supports glob matching."
+            );
 
-            for (int i = 0; i < args.Length; i++)
+            var unpackOption = new Option<IEnumerable<string>>(new[] { "--unpack" },
+                 getDefaultValue: () => new string[] { },
+                 description: "Unpacks an asset bundle before proceeding. Does not support glob matching."
+            );
+
+            var command = new RootCommand
             {
-                switch (args[i])
+               projectOption,
+               outputOption,
+               assetOption,
+               excludeOption,
+               unpackOption
+            };
+
+            command.Description = "Exports projects to Unity packages";
+            command.SetHandler((DirectoryInfo project, FileInfo output, IEnumerable<string> assetPatterns, IEnumerable<string> excludePatterns, IEnumerable<string> unpacks) =>
+            {
+
+                // Unpack previous packs
+                foreach (var pack in unpacks)
                 {
-                    case "-unpack":
-                        unpacks.Add(args[++i]);
-                        break;
-
-                    case "-output":
-                        output = args[++i];
-                        break;
-
-                    case "-project":
-                        unityProject = args[++i];
-                        break;
-
-                    case "-asset":
-                        assets.Add(args[++i]);
-                        break;
-
-                    case "-assets":
-                        assets.AddRange(args[++i].Split(','));
-                        break;
-
-                    case "-dir":
-                        directories.Add(args[++i]);
-                        break;
-
-                    case "-dirs":
-                        directories.AddRange(args[++i].Split(','));
-                        break;
-
-                    case "-exclude":
-                        excludes.Add(args[++i]);
-                        break;
-
-                    case "-a":
-                        Console.WriteLine("Overrides Enabled");
-                        allOverride = true;
-                        break;
-
-                    default:
-                        Console.WriteLine("Unkown Argument: {0}", args[i]);
-                        break;
+                    Console.WriteLine("Unpacking unitypackage '{0}'", pack);
+                    UnpackAssets(pack, project.FullName);
                 }
-            }
 
-            if (string.IsNullOrEmpty(unityProject))
-            {
-                Console.WriteLine("-project is null or empty!");
-                return;
-            }
+                // Make the output file (touch it) so we can exclude
+                File.WriteAllBytes(output.FullName, new byte[0]);
 
-            foreach(var pack in unpacks)
-            {
-                Console.WriteLine("Unpacking unitypackage '{0}'", pack);
-                UnpackAssets(pack, unityProject);
-            }
+                // Match the assets and start packing them
+                Console.WriteLine("Packing...");
+                var stopwatch = new Stopwatch();
 
-            // Remove excluded directories and files
-            excludes.Add(output);
-            foreach(var exclude in excludes)
-            {
-                assets.Remove(exclude);
-                directories.Remove(exclude);
-            }
+                Matcher matcher = new Matcher();
+                matcher.AddIncludePatterns(assetPatterns);
+                matcher.AddExcludePatterns(excludePatterns);
+                matcher.AddExclude(output.Name);
 
-            // CHeck
-            if (!allOverride && assets.Count == 0 && directories.Count == 0)
-            {
-                Console.WriteLine("No assets or directories supplied");
-                return;
-            }
+                var results = matcher.GetResultsInFullPath(project.FullName);
+                PackAssets(output.FullName, project.FullName, results, true);
 
-            Console.WriteLine("Packing....");
-            var stopwatch = new Stopwatch();
-            stopwatch.Start();
-            { 
-                if (allOverride)
-                {
-                    Console.WriteLine("Packing All....");
-
-                    string path = Path.Combine(unityProject, "Assets");
-                    Console.WriteLine("Looking '{0}'", path);
-
-                    var files = Directory.GetFiles(path, "*", SearchOption.AllDirectories)
-                                .Where(f => Path.GetExtension(f) != ".meta")
-                                .Where(f => !excludes.Contains(f));
-                    PackAssets(output, unityProject, files);
-                }
-                else
-                {
-                    Console.WriteLine("Packing Some....");                    
-                    var files = directories
-                        .SelectMany(dir => Directory.GetFiles(Path.Combine(unityProject, dir), "*", SearchOption.AllDirectories))
-                        .Union(assets)
-                        .Where(f => Path.GetExtension(f) != ".meta")
-                        .Where(f => !excludes.Contains(f));
-                    PackAssets(output, unityProject, files);
-                }
-            }
-            stopwatch.Stop();
-
-            Console.WriteLine("Finished packing. Took {0}ms", stopwatch.ElapsedMilliseconds);
+                stopwatch.Stop();
+                Console.WriteLine("Finished packing. Took {0}ms", stopwatch.ElapsedMilliseconds);
+            }, projectOption, outputOption, assetOption, excludeOption, unpackOption);
+            return command.Invoke(args);
         }
 
         public static void UnpackAssets(string package, string unityProjectRoot, bool allowOverride = true)
