@@ -94,6 +94,7 @@ namespace UnityPackageExporter
             }
 
             // Remove excluded directories and files
+            excludes.Add(output);
             foreach(var exclude in excludes)
             {
                 assets.Remove(exclude);
