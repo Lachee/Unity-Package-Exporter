@@ -118,7 +118,9 @@ namespace UnityPackageExporter
                     string path = Path.Combine(unityProject, "Assets");
                     Console.WriteLine("Looking '{0}'", path);
 
-                    var files = Directory.GetFiles(path, "*", SearchOption.AllDirectories).Where(f => Path.GetExtension(f) != ".meta");
+                    var files = Directory.GetFiles(path, "*", SearchOption.AllDirectories)
+                                .Where(f => Path.GetExtension(f) != ".meta")
+                                .Where(f => !excludes.Contains(f));
                     PackAssets(output, unityProject, files);
                 }
                 else
@@ -127,8 +129,8 @@ namespace UnityPackageExporter
                     var files = directories
                         .SelectMany(dir => Directory.GetFiles(Path.Combine(unityProject, dir), "*", SearchOption.AllDirectories))
                         .Union(assets)
-                        .Where(f => Path.GetExtension(f) != ".meta");
-
+                        .Where(f => Path.GetExtension(f) != ".meta")
+                        .Where(f => !excludes.Contains(f));
                     PackAssets(output, unityProject, files);
                 }
             }
