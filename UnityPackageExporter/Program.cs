@@ -43,17 +43,23 @@ namespace UnityPackageExporter
                  description: "Unpacks an asset bundle before proceeding. Does not support glob matching."
             );
 
+            var dependencyOption = new Option<bool>(new string[] { "--include-dependencies", "-d" },
+                getDefaultValue: () => false,
+                description: "Performs dependency analysis"
+            );
+
             var command = new RootCommand
             {
                projectOption,
                outputOption,
                assetOption,
                excludeOption,
-               unpackOption
+               unpackOption,
+               dependencyOption
             };
 
             command.Description = "Exports projects to Unity packages";
-            command.SetHandler((DirectoryInfo project, FileInfo output, IEnumerable<string> assetPatterns, IEnumerable<string> excludePatterns, IEnumerable<string> unpacks) =>
+            command.SetHandler((DirectoryInfo project, FileInfo output, IEnumerable<string> assetPatterns, IEnumerable<string> excludePatterns, IEnumerable<string> unpacks, bool analyiseDependencies) =>
             {
 
                 // Unpack previous packs
@@ -75,12 +81,12 @@ namespace UnityPackageExporter
                 matcher.AddExcludePatterns(excludePatterns);
                 matcher.AddExclude(output.Name);
 
-                var results = matcher.GetResultsInFullPath(project.FullName);
-                PackAssets(output.FullName, project.FullName, results, true);
+                var files = matcher.GetResultsInFullPath(project.FullName);
+                PackAssets(output.FullName, project.FullName, files, analyiseDependencies);
 
                 stopwatch.Stop();
                 Console.WriteLine("Finished packing. Took {0}ms", stopwatch.ElapsedMilliseconds);
-            }, projectOption, outputOption, assetOption, excludeOption, unpackOption);
+            }, projectOption, outputOption, assetOption, excludeOption, unpackOption, dependencyOption);
             return command.Invoke(args);
         }
 
@@ -161,7 +167,7 @@ namespace UnityPackageExporter
             }
         }
 
-        public static void PackAssets(string packageOutput, string unityProjectRoot, IEnumerable<string> assets, bool overwrite = true)
+        public static void PackAssets(string packageOutput, string unityProjectRoot, IEnumerable<string> assets, bool depAnalysis = false)
         {
             Console.WriteLine("Packing Project '{0}'", unityProjectRoot);
 
@@ -172,13 +178,45 @@ namespace UnityPackageExporter
                 using (var tarStream = new TarOutputStream(gzoStream))
                 {
                     //Go over every asset, adding it
+                    HashSet<string> packedAssets = new HashSet<string>();
+                    HashSet<string> additionalAssets = new HashSet<string>();
                     foreach(var asset in assets)
                     {
-                        PackUnityAsset(tarStream, unityProjectRoot, asset);
+                        // Pack the asset if we can
+                        if (packedAssets.Add(asset))
+                        {
+                            PackUnityAsset(tarStream, unityProjectRoot, asset);
+
+                            // Lookup its dependencies if we can
+                            if (depAnalysis)
+                                AnalyseDependencies(asset, additionalAssets, false);
+                        }
                     }
                 }
             }
         }
+
+        /// <summary>
+        /// Analyse the asset for all its dependencies
+        /// </summary>
+        /// <param name="asset"></param>
+        /// <param name="dependencies">Referenced list of all dependencies so far</param>
+        /// <param name="deep">Deep search for the dependencies' dependencies</param>
+        public static void AnalyseDependencies(string asset, HashSet<string> dependencies, bool deep = true)
+        {
+            // Prepare the deep queue
+            HashSet<string> deepQueue = new HashSet<string>();
+
+            // Find the deps
+
+            // Process deep queue
+            if (deep)
+            {
+                foreach (var queuedAsset in deepQueue)
+                    AnalyseDependencies(queuedAsset, dependencies, deep);
+            }
+        }
+
 
         private static void PackUnityAsset(TarOutputStream tarStream, string unityProjectRoot, string assetFile)
         {
