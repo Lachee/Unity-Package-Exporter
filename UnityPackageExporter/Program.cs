@@ -75,31 +75,62 @@ namespace UnityPackageExporter
                 // Match the assets and start packing them
                 Console.WriteLine("Packing...");
                 var stopwatch = new Stopwatch();
+                stopwatch.Start();
 
                 Matcher assetMatcher = new Matcher();
                 assetMatcher.AddIncludePatterns(assetPatterns);
                 assetMatcher.AddExcludePatterns(excludePatterns);
                 assetMatcher.AddExclude(output.Name);
-                var files = assetMatcher.GetResultsInFullPath(project.FullName);
+                var assetMatchResults = assetMatcher.GetResultsInFullPath(project.FullName);
 
                 if (!analyiseDependencies)
                 {
-                    PackAssets(output.FullName, project.FullName, files);
+                    PackAssets(output.FullName, project.FullName, assetMatchResults);
                 } 
                 else
                 {
-                    using DependencyAnalyiser analyiser = new DependencyAnalyiser(project.FullName);
+                    Console.WriteLine("TODO: ANALYSER ONLY CHECKS SCRIPTS FOR SCRIPTS! IT DOESNT READ ASSETS YET");
+
+                    // Initialize the analyser and insert initial files
+                    using ScriptDependencyAnalyser analyser = new ScriptDependencyAnalyser(project.FullName);
                     Matcher depMatcher = new Matcher();
                     depMatcher.AddIncludePatterns(new string[] { "**/*.cs" });
                     assetMatcher.AddExcludePatterns(excludePatterns);
+                    await analyser.AddFilesAsync(depMatcher.GetResultsInFullPath(project.FullName));
 
-                    await analyiser.AddFilesAsync(depMatcher.GetResultsInFullPath(project.FullName));
-                    foreach (var file in files)
-                        await analyiser.FindDependenciesAsync(file);
+                    // Build a queue of files to analyse
+                    Console.WriteLine("Analysing Dependencies....");
+                    var analyserStopwatch = new Stopwatch();
+                    analyserStopwatch.Start();
 
+                    // Enqueue all files
+                    HashSet<string> additionalAssets = new HashSet<string>();
+                    Queue<string> dependencyQueue = new Queue<string>();
+                    foreach (var item in assetMatchResults)
+                    {
+                        if (additionalAssets.Add(item))
+                            dependencyQueue.Enqueue(item);
+                    }
+
+                    // While we have a queue, push the file if we can
+                    while (dependencyQueue.TryDequeue(out var currentFile))
+                    {
+                        Console.WriteLine(" - Analysing {0}", currentFile);
+                        var dependencies = await analyser.FindDependenciesAsync(currentFile);
+                        foreach(var dependency in dependencies)
+                        {
+                            Console.WriteLine(" --- Requires {0}", dependency);
+                            if (additionalAssets.Add(dependency))
+                                dependencyQueue.Enqueue(dependency);
+                        }
+                    }
+
+                    Console.WriteLine("Finished Analysis in {0}ms", analyserStopwatch.ElapsedMilliseconds);
+
+                    // Pack the assets
+                    PackAssets(output.FullName, project.FullName, additionalAssets, analyser);
                 }
 
-                stopwatch.Stop();
                 Console.WriteLine("Finished packing. Took {0}ms", stopwatch.ElapsedMilliseconds);
             }, projectOption, outputOption, assetOption, excludeOption, unpackOption, dependencyOption);
             return command.Invoke(args);
@@ -182,7 +213,7 @@ namespace UnityPackageExporter
             }
         }
 
-        public static void PackAssets(string packageOutput, string unityProjectRoot, IEnumerable<string> assets, DependencyAnalyiser analyiser = null)
+        public static void PackAssets(string packageOutput, string unityProjectRoot, IEnumerable<string> assets, ScriptDependencyAnalyser analyiser = null)
         {
             Console.WriteLine("Packing Project '{0}'", unityProjectRoot);
 
@@ -217,7 +248,7 @@ namespace UnityPackageExporter
         /// <param name="asset"></param>
         /// <param name="dependencies">Referenced list of all dependencies so far</param>
         /// <param name="deep">Deep search for the dependencies' dependencies</param>
-        public static void AnalyseDependencies(DependencyAnalyiser analyiser, string asset, HashSet<string> dependencies, bool deep = true)
+        public static void AnalyseDependencies(ScriptDependencyAnalyser analyiser, string asset, HashSet<string> dependencies, bool deep = true)
         {
             // Prepare the deep queue
             HashSet<string> deepQueue = new HashSet<string>();
