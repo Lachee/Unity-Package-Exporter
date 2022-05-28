@@ -21,20 +21,47 @@ namespace UnityPackageExporter
             ProjectPath = projectPath;
         }
 
+        /// <summary>
+        /// Gets a list of all dependencies for the given list of files
+        /// </summary>
+        /// <param name="files"></param>
+        /// <returns></returns>
+        public async Task<IReadOnlyCollection<string>> FindAllDependenciesAsync(IEnumerable<string> files)
+        {
+            HashSet<string> results = new HashSet<string>();
+            Queue<string> queue = new Queue<string>();
+            foreach (var item in files)
+            {
+                if (results.Add(item))
+                    queue.Enqueue(item);
+            }
 
+            // While we have a queue, push the file if we can
+            while (queue.TryDequeue(out var currentFile))
+            {
+                var dependencies = await FindFileDependenciesAsync(currentFile);
+                foreach (var dependency in dependencies)
+                {
+                    if (results.Add(dependency))
+                        queue.Enqueue(dependency);
+                }
+            }
+
+            return results;
+        }
 
         /// <summary>
         /// Get's a list of files this asset needs. 
         /// <para>This is a shallow search</para>
         /// </summary>
-        public async Task<IReadOnlyCollection<FileInfo>> FindShallowReferencesAsnyc(string assetPath)
+        public async Task<IReadOnlyCollection<string>> FindFileDependenciesAsync(string assetPath)
         {
             AssetID[] references = await AssetParser.ReadReferencesAsync(assetPath);
-            HashSet<FileInfo> files = new HashSet<FileInfo>(references.Length);
+            HashSet<string> files = new HashSet<string>(references.Length);
             foreach(AssetID reference in references)
             {
                 if (TryGetFileFromGUID(reference.guid, out var info))
-                    files.Add(info);
+                    files.Add(info.FullName);
             }
 
             return files;

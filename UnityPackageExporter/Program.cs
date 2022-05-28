@@ -94,7 +94,7 @@ namespace UnityPackageExporter
                     await assetAnalyser.BuildFileMap();
 
                     string testAsset = @"D:\Users\Lachee\Documents\Unity Projects\TargaExperimentHD\Assets\Scenes\Huon.unity";
-                    var infos = await assetAnalyser.FindShallowReferencesAsnyc(testAsset);
+                    var infos = await assetAnalyser.FindFileDependenciesAsync(testAsset);
                     Console.WriteLine(string.Join("\n", infos.Select(fi => fi.FullName)));
 
                     // Build a queue of files to analyse
@@ -112,7 +112,7 @@ namespace UnityPackageExporter
                     await analyser.AddFilesAsync(depMatcher.GetResultsInFullPath(project.FullName));
 
                     // Find all the files from our list of assets
-                    var additionalAssets = await analyser.FindDependenciesAsync(assetMatchResults);
+                    var additionalAssets = await analyser.FindAllDependenciesAsync(assetMatchResults);
                     Console.WriteLine("Finished Analysis. Took a total of {0}ms", analyserStopwatch.ElapsedMilliseconds);
 
                     // Pack the assets

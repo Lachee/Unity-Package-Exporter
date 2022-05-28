@@ -76,34 +76,32 @@ namespace UnityPackageExporter
         }
 
         /// <summary>Perofrms a deep search and finds all the dependencies for this file</summary>
-        public async Task<IReadOnlyCollection<string>> FindDependenciesAsync(IEnumerable<string> files)
+        public async Task<IReadOnlyCollection<string>> FindAllDependenciesAsync(IEnumerable<string> files)
         {
-            HashSet<string> additionalAssets = new HashSet<string>();
-            Queue<string> dependencyQueue = new Queue<string>();
+            HashSet<string> results = new HashSet<string>();
+            Queue<string> queue = new Queue<string>();
             foreach (var item in files)
             {
-                if (additionalAssets.Add(item))
-                    dependencyQueue.Enqueue(item);
+                if (results.Add(item))
+                    queue.Enqueue(item);
             }
 
             // While we have a queue, push the file if we can
-            while (dependencyQueue.TryDequeue(out var currentFile))
+            while (queue.TryDequeue(out var currentFile))
             {
-                Console.WriteLine(" - Analysing {0}", currentFile);
-                var dependencies = await FindShallowDependenciesAsync(currentFile);
+                var dependencies = await FindFileDependenciesAsync(currentFile);
                 foreach (var dependency in dependencies)
                 {
-                    Console.WriteLine(" --- Requires {0}", dependency);
-                    if (additionalAssets.Add(dependency))
-                        dependencyQueue.Enqueue(dependency);
+                    if (results.Add(dependency))
+                        queue.Enqueue(dependency);
                 }
             }
 
-            return additionalAssets;
+            return results;
         }
 
         /// <summary>Finds the shallow list of dependencies</summary>
-        public async Task<string[]> FindShallowDependenciesAsync(string file)
+        public async Task<string[]> FindFileDependenciesAsync(string file)
         {
             if (!documents.ContainsKey(file))
                 await AddFileAsync(file);
