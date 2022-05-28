@@ -12,31 +12,36 @@ using System.Threading.Tasks;
 
 namespace UnityPackageExporter
 {
-    class ScriptDependencyAnalyser : IDisposable
+    class ScriptAnalyser : IDisposable
     {
         private AdhocWorkspace workspace;
         private Solution solution;
         private Project project;
         private Dictionary<string, Document> documents = new Dictionary<string, Document>();
-        private Dictionary<string, string[]> dependencies = new Dictionary<string, string[]>();
+        private Dictionary<string, string[]> dependencyCache = new Dictionary<string, string[]>();
 
-        public ScriptDependencyAnalyser(string rootDirectory)
+        public string ProjectPath { get; }
+
+        public ScriptAnalyser(string projectPath)
         {
             var mscorlib = PortableExecutableReference.CreateFromFile(typeof(object).Assembly.Location);
-
+            
+            ProjectPath = projectPath;
             workspace = new AdhocWorkspace();
             documents = new Dictionary<string, Document>();
 
             //Prepare solution
             var solId = SolutionId.CreateNewId();
             var solutionInfo = SolutionInfo.Create(solId, VersionStamp.Default);
+            
             solution = workspace.AddSolution(solutionInfo);
 
             //Prepare the project
             //var projectInfo = ProjectInfo.Create(ProjectId.CreateNewId(), LanguageNames.CSharp, rootDirectory);
             project = workspace.AddProject("Sample", LanguageNames.CSharp);
-            project = project.AddMetadataReference(mscorlib);
-
+            project = project.AddMetadataReference(mscorlib)
+                                .WithParseOptions(((CSharpParseOptions)project.ParseOptions)
+                                .WithPreprocessorSymbols("UNITY_EDITOR"));
             // Suport attributes
             //AddSource("PropertyAttribute.cs", "namespace UnityEngine { public class PropertyAttribute : System.Attribute { } }");
         }
@@ -44,7 +49,7 @@ namespace UnityPackageExporter
         /// <summary>Adds a source code directly as a reference</summary>
         public void AddSource(string name, string source)
         {
-            dependencies.Clear();
+            dependencyCache.Clear();
             var src = SourceText.From(source);
             var doc = project.AddDocument(name, src);
             project = doc.Project;
@@ -54,7 +59,7 @@ namespace UnityPackageExporter
         /// <summary>Adds a file</summary>
         public async Task AddFileAsync(string file)
         {
-            dependencies.Clear();
+            dependencyCache.Clear();
             var name = Path.GetFileName(file);
             var fileContent = await File.ReadAllTextAsync(file);
             var src = SourceText.From(fileContent);
@@ -70,20 +75,52 @@ namespace UnityPackageExporter
                 await AddFileAsync(file);
         }
 
-        public async Task<string[]> FindDependenciesAsync(string file)
+        /// <summary>Perofrms a deep search and finds all the dependencies for this file</summary>
+        public async Task<IReadOnlyCollection<string>> FindDependenciesAsync(IEnumerable<string> files)
+        {
+            HashSet<string> additionalAssets = new HashSet<string>();
+            Queue<string> dependencyQueue = new Queue<string>();
+            foreach (var item in files)
+            {
+                if (additionalAssets.Add(item))
+                    dependencyQueue.Enqueue(item);
+            }
+
+            // While we have a queue, push the file if we can
+            while (dependencyQueue.TryDequeue(out var currentFile))
+            {
+                Console.WriteLine(" - Analysing {0}", currentFile);
+                var dependencies = await FindShallowDependenciesAsync(currentFile);
+                foreach (var dependency in dependencies)
+                {
+                    Console.WriteLine(" --- Requires {0}", dependency);
+                    if (additionalAssets.Add(dependency))
+                        dependencyQueue.Enqueue(dependency);
+                }
+            }
+
+            return additionalAssets;
+        }
+
+        /// <summary>Finds the shallow list of dependencies</summary>
+        public async Task<string[]> FindShallowDependenciesAsync(string file)
         {
             if (!documents.ContainsKey(file))
                 await AddFileAsync(file);
 
-            if (dependencies.Count == 0)
-                await BuildDependencyMap();
+            if (dependencyCache.Count == 0)
+                await UpdateDependencyCache();
 
-            return dependencies[file];
+            if (dependencyCache.TryGetValue(file, out var deps))
+                return deps;
+
+            return new string[0];
         }
 
         /// <summary>Builds the internal dependency map</summary>
-        private async Task BuildDependencyMap()
+        private async Task UpdateDependencyCache()
         {
+            Console.WriteLine("Rebuilding Dependency Cache");
             workspace.TryApplyChanges(solution);
 
             Dictionary<string, HashSet<string>> mapping = new Dictionary<string, HashSet<string>>();
@@ -112,7 +149,7 @@ namespace UnityPackageExporter
                     }
                 }
             }
-            dependencies = mapping.ToDictionary((kp) => kp.Key, (kp) => kp.Value.ToArray());
+            dependencyCache = mapping.ToDictionary((kp) => kp.Key, (kp) => kp.Value.ToArray());
         }
 
         public void Dispose()
