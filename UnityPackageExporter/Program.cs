@@ -78,6 +78,8 @@ namespace UnityPackageExporter
                 var stopwatch = new Stopwatch();
                 stopwatch.Start();
 
+
+
                 Matcher assetMatcher = new Matcher();
                 assetMatcher.AddIncludePatterns(assetPatterns);
                 assetMatcher.AddExcludePatterns(excludePatterns);
@@ -105,6 +107,14 @@ namespace UnityPackageExporter
             return command.Invoke(args);
         }
 
+
+
+        /// <summary>
+        /// Unpacks assets
+        /// </summary>
+        /// <param name="package"></param>
+        /// <param name="unityProjectRoot"></param>
+        /// <param name="allowOverride"></param>
         public static void UnpackAssets(string package, string unityProjectRoot, bool allowOverride = true)
         {
             Console.WriteLine("Unpacking Package '{0}' into ", package, unityProjectRoot);
@@ -180,211 +190,6 @@ namespace UnityPackageExporter
                     }
                 }
             }
-        }
-
-        public static void PackAssets(string packageOutput, string unityProjectRoot, IEnumerable<string> assets, ScriptAnalyser analyiser = null)
-        {
-            Console.WriteLine("Packing Project '{0}'", unityProjectRoot);
-
-            //Create all the streams
-            using (var fileStream = new FileStream(packageOutput, FileMode.Create))
-            {
-                using (var gzoStream = new GZipOutputStream(fileStream))
-                using (var tarStream = new TarOutputStream(gzoStream))
-                {
-                    //Go over every asset, adding it
-                    HashSet<string> packedAssets = new HashSet<string>();
-                    HashSet<string> additionalAssets = new HashSet<string>();
-                    foreach(var asset in assets)
-                    {
-                        // Pack the asset if we can
-                        if (packedAssets.Add(asset))
-                        {
-                            //PackUnityAsset(tarStream, unityProjectRoot, asset);
-
-                            // Lookup its dependencies if we can
-                            if (analyiser != null)
-                                AnalyseDependencies(analyiser, asset, additionalAssets, false);
-                        }
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Analyse the asset for all its dependencies
-        /// </summary>
-        /// <param name="asset"></param>
-        /// <param name="dependencies">Referenced list of all dependencies so far</param>
-        /// <param name="deep">Deep search for the dependencies' dependencies</param>
-        public static void AnalyseDependencies(ScriptAnalyser analyiser, string asset, HashSet<string> dependencies, bool deep = true)
-        {
-            // Prepare the deep queue
-            HashSet<string> deepQueue = new HashSet<string>();
-
-            // Find the deps
-
-            // Process deep queue
-            if (deep)
-            {
-                foreach (var queuedAsset in deepQueue)
-                    AnalyseDependencies(analyiser, queuedAsset, dependencies, deep);
-            }
-        }
-
-
-        private static void PackUnityAsset(TarOutputStream tarStream, string unityProjectRoot, string assetFile)
-        {
-            //If the file doesnt exist, skip it
-            if (!File.Exists(assetFile))
-            {
-                Console.WriteLine("SKIP: " + assetFile);
-                return;
-            }
-
-            //Make sure its not a meta file
-            if (Path.GetExtension(assetFile).ToLowerInvariant() == ".meta")
-            {
-                //Siently skip meta files
-                return;
-            }
-
-            //Get all the paths
-            string relativePath = Path.GetRelativePath(unityProjectRoot, assetFile);
-            string metaFile = $"{assetFile}.meta";
-            string metaContents = null;
-            string guidString = "";
-
-            //If the file doesnt have a meta then skip it
-            if (!File.Exists(metaFile))
-            {
-                //Meta file is missing so we have to generate it ourselves.
-                Console.WriteLine("MISSING ASSET FILE: " + assetFile);
-
-                Guid guid = Guid.NewGuid();
-                foreach (var byt in guid.ToByteArray())
-                    guidString += string.Format("{0:X2}", byt);
-
-                var builder = new System.Text.StringBuilder();
-                builder.Append("guid: " + new Guid()).Append("\n");
-                metaContents = builder.ToString();
-            }
-            else
-            {
-                //Read the meta contents
-                metaContents = File.ReadAllText(metaFile);
-
-                int guidIndex = metaContents.IndexOf("guid: ");
-                guidString = metaContents.Substring(guidIndex + 6, 32);
-            }
-
-            //Add the file
-            Console.WriteLine("ADD: " + relativePath);
-            
-            //Add the asset, meta and pathname.
-            tarStream.WriteFile(assetFile, $"{guidString}/asset");
-            tarStream.WriteAllText($"{guidString}/asset.meta", metaContents);
-            tarStream.WriteAllText($"{guidString}/pathname", relativePath.Replace('\\', '/'));            
-        }
-        
-    }
-
-    public static class TarOutputExtensions
-    {
-        public static void WriteFile(this TarOutputStream stream, string source, string dest)
-        {
-            using (Stream inputStream = File.OpenRead(source))
-            {
-                long fileSize = inputStream.Length;
-
-                // Create a tar entry named as appropriate. You can set the name to anything,
-                // but avoid names starting with drive or UNC.
-                TarEntry entry = TarEntry.CreateTarEntry(dest);
-
-                // Must set size, otherwise TarOutputStream will fail when output exceeds.
-                entry.Size = fileSize;
-
-                // Add the entry to the tar stream, before writing the data.
-                stream.PutNextEntry(entry);
-
-                // this is copied from TarArchive.WriteEntryCore
-                byte[] localBuffer = new byte[32 * 1024];
-                while (true)
-                {
-                    int numRead = inputStream.Read(localBuffer, 0, localBuffer.Length);
-                    if (numRead <= 0)
-                        break;
-
-                    stream.Write(localBuffer, 0, numRead);
-                }
-
-                //Close the entry
-                stream.CloseEntry();
-            }
-        }
-
-        public static void WriteAllText(this TarOutputStream stream, string dest, string content)
-        {
-            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(content);
-            
-            TarEntry entry = TarEntry.CreateTarEntry(dest);
-            entry.Size = bytes.Length;
-
-            // Add the entry to the tar stream, before writing the data.
-            stream.PutNextEntry(entry);
-
-            // this is copied from TarArchive.WriteEntryCore
-            stream.Write(bytes, 0, bytes.Length);
-
-            //Close the entry
-            stream.CloseEntry();
-        }
-
-        public static long ReadNextFile(this TarInputStream tarIn, Stream outStream)
-        {
-            long totalRead = 0;
-            byte[] buffer = new byte[4096];
-            bool isAscii = true;
-            bool cr = false;
-
-            int numRead = tarIn.Read(buffer, 0, buffer.Length);
-            int maxCheck = Math.Min(200, numRead);
-
-            totalRead += numRead;
-
-            for (int i = 0; i < maxCheck; i++)
-            {
-                byte b = buffer[i];
-                if (b < 8 || (b > 13 && b < 32) || b == 255)
-                {
-                    isAscii = false;
-                    break;
-                }
-            }
-
-            while (numRead > 0)
-            {
-                if (isAscii)
-                {
-                    // Convert LF without CR to CRLF. Handle CRLF split over buffers.
-                    for (int i = 0; i < numRead; i++)
-                    {
-                        byte b = buffer[i];     // assuming plain Ascii and not UTF-16
-                        if (b == 10 && !cr)     // LF without CR
-                            outStream.WriteByte(13);
-                        cr = (b == 13);
-
-                        outStream.WriteByte(b);
-                    }
-                }
-                else
-                    outStream.Write(buffer, 0, numRead);
-
-                numRead = tarIn.Read(buffer, 0, buffer.Length);
-                totalRead += numRead;
-            }
-
-            return totalRead;
         }
     }
 }
