@@ -13,7 +13,8 @@ namespace UnityPackageExporter.Dependency
     {
         static readonly Regex Pattern = new Regex(@"(([fF]ileID|guid): ([\-a-z0-9]+))", RegexOptions.Compiled);
 
-        class PendingReference
+        /// <summary>Pending Results</summary>
+        private class PendingReference
         {
             public AssetID ID;
             public int startPosition;
@@ -21,20 +22,7 @@ namespace UnityPackageExporter.Dependency
                 ID.HasFileID ? 8 + startPosition + ID.fileID.Length : 6 + startPosition + ID.guid.Length;
         }
 
-        /// <summary>
-        /// Type of asset to search for
-        /// </summary>
-        public enum AssetType
-        {
-            None = 0,
-            Files,
-            Scene,
-            Prefab,
-            Script,
-            Asset,
-            Material
-        }
-
+        /// <summary>Reads an asset's ID</summary>
         public static async Task<AssetID> ReadAssetIDAsync(string assetFilePath)
         {
             // Get the meta filepath
@@ -64,7 +52,7 @@ namespace UnityPackageExporter.Dependency
             switch(ext)
             {
                 default:
-                    throw new ArgumentException("Extension is not a valid text-based reference", "assetFilePath");
+                    return new AssetID[0];
                 
                 // Valid assets we can parse for references
                 case ".mat":

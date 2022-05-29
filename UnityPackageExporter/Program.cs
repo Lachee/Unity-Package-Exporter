@@ -11,6 +11,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using UnityPackageExporter.Dependency;
 
 //-project "C:\Users\TasGDS\Documents\GitHub\discord-rpc-csharp\Unity Example\\" -dir "Assets\\"
 //-project bin/ExampleProject/ -unpack package.unitypackage
@@ -34,7 +35,7 @@ namespace UnityPackageExporter
             );
 
             var excludeOption = new Option<IEnumerable<string>>(new[] { "--exclude", "-e" },
-                getDefaultValue: () => new string[] { },
+                getDefaultValue: () => new string[] { "Library/**.*", "**/.*" },
                 description: "Excludes an asset from the pack. Supports glob matching."
             );
 
@@ -89,34 +90,14 @@ namespace UnityPackageExporter
                 } 
                 else
                 {
-                    Console.WriteLine("TODO: ANALYSER ONLY CHECKS SCRIPTS FOR SCRIPTS! IT DOESNT READ ASSETS YET");
-                    AssetAnalyser assetAnalyser = new AssetAnalyser(project.FullName);
-                    await assetAnalyser.BuildFileMap();
+                    using DependencyAnalyser analyser = await DependencyAnalyser.CreateAsync(project.FullName, excludePatterns);
+                    var additionalAssets = await analyser.FindDependencies(assetMatchResults);
 
-                    string testAsset = @"D:\Users\Lachee\Documents\Unity Projects\TargaExperimentHD\Assets\Scenes\Huon.unity";
-                    var infos = await assetAnalyser.FindFileDependenciesAsync(testAsset);
-                    Console.WriteLine(string.Join("\n", infos.Select(fi => fi.FullName)));
-
-                    // Build a queue of files to analyse
-                    Console.WriteLine("Loading Scripts for analysis....");
-                    var analyserStopwatch = new Stopwatch();
-                    analyserStopwatch.Start();
-
-                    // Initialize the analyser and insert initial files
-                    using ScriptAnalyser analyser = new ScriptAnalyser(project.FullName);
-                    Matcher depMatcher = new Matcher();
-                    depMatcher.AddIncludePatterns(new string[] { "**/*.cs" });
-                    assetMatcher.AddExcludePatterns(excludePatterns);
-                    
-                    // Load up all the script files
-                    await analyser.AddFilesAsync(depMatcher.GetResultsInFullPath(project.FullName));
-
-                    // Find all the files from our list of assets
-                    var additionalAssets = await analyser.FindAllDependenciesAsync(assetMatchResults);
-                    Console.WriteLine("Finished Analysis. Took a total of {0}ms", analyserStopwatch.ElapsedMilliseconds);
+                    foreach (var file in additionalAssets)
+                        Console.WriteLine(file);
 
                     // Pack the assets
-                    PackAssets(output.FullName, project.FullName, additionalAssets, analyser);
+                    PackAssets(output.FullName, project.FullName, additionalAssets);
                 }
 
                 Console.WriteLine("Finished packing. Took {0}ms", stopwatch.ElapsedMilliseconds);

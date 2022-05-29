@@ -4,13 +4,15 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.CodeAnalysis.Text;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace UnityPackageExporter
+namespace UnityPackageExporter.Dependency
 {
     class ScriptAnalyser : IDisposable
     {
@@ -56,7 +58,7 @@ namespace UnityPackageExporter
             documents.Add(name, doc);
         }
 
-        /// <summary>Adds a file</summary>
+        /// <summary>Adds a file to valid source documents</summary>
         public async Task AddFileAsync(string file)
         {
             dependencyCache.Clear();
@@ -68,12 +70,10 @@ namespace UnityPackageExporter
             documents.Add(file, doc);
         }
 
-        /// <summary>Adds all files</summary>
-        public async Task AddFilesAsync(IEnumerable<string> files)
-        {
-            foreach (var file in files)
-                await AddFileAsync(file);
-        }
+        /// <summary>Adds a list of documents to valid source documents</summary>
+        public Task AddFilesAsync(IEnumerable<string> files)
+            => Task.WhenAll(files.Select(file => AddFileAsync(file)));
+        
 
         /// <summary>Perofrms a deep search and finds all the dependencies for this file</summary>
         public async Task<IReadOnlyCollection<string>> FindAllDependenciesAsync(IEnumerable<string> files)
@@ -107,7 +107,7 @@ namespace UnityPackageExporter
                 await AddFileAsync(file);
 
             if (dependencyCache.Count == 0)
-                await UpdateDependencyCache();
+                await BuidDependencyMap();
 
             if (dependencyCache.TryGetValue(file, out var deps))
                 return deps;
@@ -116,38 +116,59 @@ namespace UnityPackageExporter
         }
 
         /// <summary>Builds the internal dependency map</summary>
-        private async Task UpdateDependencyCache()
+        public async Task BuidDependencyMap()
         {
-            Console.WriteLine("Rebuilding Dependency Cache");
-            workspace.TryApplyChanges(solution);
+            ConcurrentDictionary<string, ConcurrentBag<string>> mapping = new ConcurrentDictionary<string, ConcurrentBag<string>>();
+            await ParallelForEachAsync(project.Documents, (document) => FindSourceDependents(document, mapping), 16);
+            dependencyCache = mapping.ToDictionary((kp) => kp.Key, (kp) => kp.Value.Distinct().ToArray());
+        }
 
-            Dictionary<string, HashSet<string>> mapping = new Dictionary<string, HashSet<string>>();
-            foreach (var sourceDocument in project.Documents)
+        private async Task FindSourceDependents(Document sourceDocument, ConcurrentDictionary<string, ConcurrentBag<string>> mapping)
+        {
+            string sourceFile = sourceDocument.FilePath ?? sourceDocument.Name;
+            var model = await sourceDocument.GetSemanticModelAsync();
+            var root = await sourceDocument.GetSyntaxRootAsync();
+
+            foreach (var syntax in root.DescendantNodes().Where(node => node is TypeDeclarationSyntax || node is EnumDeclarationSyntax))
             {
-                string sourceFile = sourceDocument.FilePath ?? sourceDocument.Name;
-                var model = await sourceDocument.GetSemanticModelAsync();
-                var root = await sourceDocument.GetSyntaxRootAsync();
+                var symbol = (INamedTypeSymbol)model.GetDeclaredSymbol(syntax);
+                if (symbol == null) return;
 
-                foreach (var syntax in root.DescendantNodes().Where(node => node is TypeDeclarationSyntax || node is EnumDeclarationSyntax))
+                //////// IMPORTANT SOLUTION IS IMMUTABLE IT NEEDS TO BE PROJECT.SOLUTION
+                var references = await SymbolFinder.FindReferencesAsync(symbol, project.Solution);
+                foreach (var reference in references)
                 {
-                    var symbol = (INamedTypeSymbol)model.GetDeclaredSymbol(syntax);
-                    if (symbol == null) return;
-
-                    //////// IMPORTANT SOLUTION IS IMMUTABLE IT NEEDS TO BE PROJECT.SOLUTION
-                    var references = await SymbolFinder.FindReferencesAsync(symbol, project.Solution);
-                    foreach (var reference in references)
+                    foreach (var location in reference.Locations)
                     {
-                        foreach (var location in reference.Locations)
-                        {
-                            string refFile = location.Document.FilePath ?? location.Document.Name;
-                            if (!mapping.ContainsKey(refFile))
-                                mapping.Add(refFile, new HashSet<string>());
-                            mapping[refFile].Add(sourceFile);
-                        }
+                        string refFile = location.Document.FilePath ?? location.Document.Name;
+                        if (!mapping.ContainsKey(refFile))
+                            mapping.TryAdd(refFile, new ConcurrentBag<string>());
+                        mapping[refFile].Add(sourceFile);
                     }
                 }
             }
-            dependencyCache = mapping.ToDictionary((kp) => kp.Key, (kp) => kp.Value.ToArray());
+        }
+
+        private static Task ParallelForEachAsync<T>(IEnumerable<T> source, Func<T, Task> funcBody, int maxDoP = 4)
+        {
+            async Task AwaitPartition(IEnumerator<T> partition)
+            {
+                using (partition)
+                {
+                    while (partition.MoveNext())
+                    {
+                        await Task.Yield(); // prevents a sync/hot thread hangup
+                        await funcBody(partition.Current);
+                    }
+                }
+            }
+
+            return Task.WhenAll(
+                Partitioner
+                    .Create(source)
+                    .GetPartitions(maxDoP)
+                    .AsParallel()
+                    .Select(p => AwaitPartition(p)));
         }
 
         public void Dispose()

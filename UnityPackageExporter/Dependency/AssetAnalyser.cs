@@ -7,12 +7,13 @@ using System.Text;
 using System.Threading.Tasks;
 using UnityPackageExporter.Dependency;
 
-namespace UnityPackageExporter
+namespace UnityPackageExporter.Dependency
 {
+    /// <summary>Analyses Assets for their dependencies</summary>
     class AssetAnalyser
     {
-        private Dictionary<AssetID, FileInfo> metaLookup = new Dictionary<AssetID, FileInfo>();
-        private Dictionary<string, AssetID> guidLookup = new Dictionary<string, AssetID>();
+        private Dictionary<AssetID, FileInfo> fileIndex = new Dictionary<AssetID, FileInfo>();
+        private Dictionary<string, AssetID> guidIndex = new Dictionary<string, AssetID>();
 
         public string ProjectPath { get; }
 
@@ -20,6 +21,19 @@ namespace UnityPackageExporter
         {
             ProjectPath = projectPath;
         }
+
+        /// <summary>Adds a file to the list of valid assets to check</summary>
+        public async Task AddFileAsync(string file)
+        {
+            string filePath = Path.GetExtension(file) == ".meta" ? file : $"{file}.meta";
+            var assetID = await AssetParser.ReadAssetIDAsync(filePath);
+            fileIndex[assetID] = new FileInfo(filePath.Substring(0, filePath.Length - 5));
+            if (assetID.HasGUID) guidIndex[assetID.guid] = assetID;
+        }
+
+        /// <summary>Adds a list of files to the valid assets to check</summary>
+        public Task AddFilesAsync(IEnumerable<string> files)
+            => Task.WhenAll(files.Select(file => AddFileAsync(file)));
 
         /// <summary>
         /// Gets a list of all dependencies for the given list of files
@@ -67,28 +81,10 @@ namespace UnityPackageExporter
             return files;
         }
 
-        /// <summary>Updates the metamap for all files in the project</summary>
-        public async Task BuildFileMap()
-        {
-            List<Task<KeyValuePair<AssetID, string>>> pending = new List<Task<KeyValuePair<AssetID, string>>>();
-            foreach (var file in Directory.EnumerateFiles(ProjectPath, "*.meta", SearchOption.AllDirectories))
-            {
-                pending.Add(AssetParser.ReadAssetIDAsync(file)
-                                        .ContinueWith((task) => new KeyValuePair<AssetID, string>(task.Result, file.Substring(0, file.Length - 5))));
-            }
-            var result = await Task.WhenAll(pending);
-            foreach (var kp in result)
-            {
-                metaLookup[kp.Key] = new FileInfo(kp.Value);
-                if (kp.Key.HasGUID)
-                    guidLookup[kp.Key.guid] = kp.Key;
-            }
-        }
-
         private bool TryGetFileFromGUID(string guid, out FileInfo info) {
-            if (guid != null && guidLookup.TryGetValue(guid, out var assetID))
+            if (guid != null && guidIndex.TryGetValue(guid, out var assetID))
             {
-                if (metaLookup.TryGetValue(assetID, out var fi))
+                if (fileIndex.TryGetValue(assetID, out var fi))
                 {
                     info = fi;
                     return true;
