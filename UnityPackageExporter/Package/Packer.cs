@@ -41,7 +41,7 @@ namespace UnityPackageExporter.Package
         /// <param name="stream">The stream the contents will be written to</param>
         public Packer(string projectPath, Stream stream)
         {
-            ProjectPath = ProjectPath;
+            ProjectPath = projectPath;
             OutputPath = null;
 
             _files = new HashSet<FileInfo>();
@@ -102,8 +102,11 @@ namespace UnityPackageExporter.Package
         /// </summary>
         /// <param name="assets"></param>
         /// <returns></returns>
-        public Task AddAssetsAsync(IEnumerable<string> assets)
-            => Task.WhenAll(assets.Select(asset => AddAssetAsync(asset)));
+        public async Task AddAssetsAsync(IEnumerable<string> assets)
+        {
+            foreach(var asset in assets)
+                await AddAssetAsync(asset);
+        }
 
         public Task FlushAsync()
             => _tarStream.FlushAsync();

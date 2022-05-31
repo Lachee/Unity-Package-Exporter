@@ -63,7 +63,7 @@ namespace UnityPackageExporter
             var verboseOpt = new Option<NLog.LogLevel>(
                 aliases: new[] { "--verbose", "--log-level", "-v" },
                 description: "Sets the logging level",
-                getDefaultValue: () => NLog.LogLevel.Warn
+                getDefaultValue: () => NLog.LogLevel.Info
             );
 
             //var command = new Command(name: "pack", description: "Packs the assets in a Unity Project")
@@ -86,13 +86,15 @@ namespace UnityPackageExporter
                 var consoleTarget = new NLog.Targets.ConsoleTarget
                 {
                     Name = "console",
-                    Layout = "${longdate}|${level:uppercase=true}|${logger}|${message}",
+                    Layout = "${time}|${level:uppercase=true}|${logger}|${message}",
                 };
                 config.AddRule(verbose, NLog.LogLevel.Fatal, consoleTarget);
                 NLog.LogManager.Configuration = config;
 
                 await Logger.Swallow(async () =>
                 {
+                    Logger.Info("Packing {0}", source.FullName);
+
                     // Make the output file (touch it) so we can exclude
                     await File.WriteAllBytesAsync(output.FullName, new byte[0]);
 
@@ -116,7 +118,7 @@ namespace UnityPackageExporter
                     }
 
                     // Finally flush and tell them we done
-                    await packer.FlushAsync();
+                    //await packer.FlushAsync();
                     Console.WriteLine("Finished Packing in {0}ms", timer.ElapsedMilliseconds);
                 });
             }, sourceArg, outputArg, assetPatternOpt, excludePatternOpt, skipDepOpt, assetRootOpt, verboseOpt);
