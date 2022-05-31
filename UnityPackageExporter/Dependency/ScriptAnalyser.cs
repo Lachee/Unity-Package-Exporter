@@ -16,6 +16,8 @@ namespace UnityPackageExporter.Dependency
 {
     class ScriptAnalyser : IDisposable
     {
+        private static readonly NLog.Logger Logger = NLog.LogManager.GetLogger("ScriptAnalyser");
+
         private AdhocWorkspace workspace;
         private Solution solution;
         private Project project;
@@ -35,22 +37,20 @@ namespace UnityPackageExporter.Dependency
             //Prepare solution
             var solId = SolutionId.CreateNewId();
             var solutionInfo = SolutionInfo.Create(solId, VersionStamp.Default);
-            
             solution = workspace.AddSolution(solutionInfo);
 
             //Prepare the project
-            //var projectInfo = ProjectInfo.Create(ProjectId.CreateNewId(), LanguageNames.CSharp, rootDirectory);
             project = workspace.AddProject("Sample", LanguageNames.CSharp);
             project = project.AddMetadataReference(mscorlib)
                                 .WithParseOptions(((CSharpParseOptions)project.ParseOptions)
                                 .WithPreprocessorSymbols("UNITY_EDITOR"));
-            // Suport attributes
-            //AddSource("PropertyAttribute.cs", "namespace UnityEngine { public class PropertyAttribute : System.Attribute { } }");
         }
 
         /// <summary>Adds a source code directly as a reference</summary>
         public void AddSource(string name, string source)
         {
+            Logger.Trace("Adding source {0}", name);
+
             dependencyCache.Clear();
             var src = SourceText.From(source);
             var doc = project.AddDocument(name, src);
@@ -61,6 +61,8 @@ namespace UnityPackageExporter.Dependency
         /// <summary>Adds a file to valid source documents</summary>
         public async Task AddFileAsync(string file)
         {
+            Logger.Trace("Adding file {0}", file);
+
             dependencyCache.Clear();
             var name = Path.GetFileName(file);
             var fileContent = await File.ReadAllTextAsync(file);
@@ -78,6 +80,8 @@ namespace UnityPackageExporter.Dependency
         /// <summary>Perofrms a deep search and finds all the dependencies for this file</summary>
         public async Task<IReadOnlyCollection<string>> FindAllDependenciesAsync(IEnumerable<string> files)
         {
+            Logger.Info("Finding Dependencies");
+
             HashSet<string> results = new HashSet<string>();
             Queue<string> queue = new Queue<string>();
             foreach (var item in files)
@@ -89,9 +93,11 @@ namespace UnityPackageExporter.Dependency
             // While we have a queue, push the file if we can
             while (queue.TryDequeue(out var currentFile))
             {
+                Logger.Trace("Searching {0}", currentFile);
                 var dependencies = await FindFileDependenciesAsync(currentFile);
                 foreach (var dependency in dependencies)
                 {
+                    Logger.Trace(" - Found {0}", dependency);
                     if (results.Add(dependency))
                         queue.Enqueue(dependency);
                 }
@@ -118,14 +124,20 @@ namespace UnityPackageExporter.Dependency
         /// <summary>Builds the internal dependency map</summary>
         public async Task BuidDependencyMap()
         {
+            Logger.Info("Building Dependency Map");
+            Stopwatch stopwatch = Stopwatch.StartNew();
             ConcurrentDictionary<string, ConcurrentBag<string>> mapping = new ConcurrentDictionary<string, ConcurrentBag<string>>();
             await ParallelForEachAsync(project.Documents, (document) => FindSourceDependents(document, mapping), 16);
             dependencyCache = mapping.ToDictionary((kp) => kp.Key, (kp) => kp.Value.Distinct().ToArray());
+            
+            Logger.Trace("Finished building map. Took {0}ms", stopwatch.ElapsedMilliseconds);
         }
 
         private async Task FindSourceDependents(Document sourceDocument, ConcurrentDictionary<string, ConcurrentBag<string>> mapping)
         {
             string sourceFile = sourceDocument.FilePath ?? sourceDocument.Name;
+            Logger.Trace("Scanning references of {0}", sourceFile);
+
             var model = await sourceDocument.GetSemanticModelAsync();
             var root = await sourceDocument.GetSyntaxRootAsync();
 

@@ -12,6 +12,8 @@ namespace UnityPackageExporter.Package
     /// <summary>Packs file into a Unity Package</summary>
     class Packer : IDisposable, IAsyncDisposable
     {
+        private static readonly NLog.Logger Logger = NLog.LogManager.GetLogger("Packer");
+
         /// <summary>Path to the Unity Project</summary>
         public string ProjectPath { get; }
         /// <summary>Output file path. If a stream is given, this is null.</summary>
@@ -71,7 +73,7 @@ namespace UnityPackageExporter.Package
             if (!File.Exists(metaFile))
             {
                 //Meta file is missing so we have to generate it ourselves.
-                Console.WriteLine("MISSING ASSET FILE: {0}" , file);
+                Logger.Warn("Missing .meta for {0}", relativePath);
 
                 Guid guid = Guid.NewGuid();
                 foreach (var byt in guid.ToByteArray())
@@ -90,6 +92,7 @@ namespace UnityPackageExporter.Package
                 guidString = metaContents.Substring(guidIndex + 6, 32);
             }
 
+            Logger.Info("Writing File {0} ( {1} )", relativePath, guidString);
             await _tarStream.WriteFileAsync(file.FullName, $"{guidString}/asset");
             await _tarStream.WriteAllTextAsync($"{guidString}/asset.meta", metaContents);
             await _tarStream.WriteAllTextAsync($"{guidString}/pathname", relativePath.Replace('\\', '/'));

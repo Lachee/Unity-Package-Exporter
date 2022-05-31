@@ -12,6 +12,8 @@ namespace UnityPackageExporter.Dependency
     /// <summary>Analyses Assets for their dependencies</summary>
     class AssetAnalyser
     {
+        private static readonly NLog.Logger Logger = NLog.LogManager.GetLogger("AssetAnalyser");
+
         private Dictionary<AssetID, FileInfo> fileIndex = new Dictionary<AssetID, FileInfo>();
         private Dictionary<string, AssetID> guidIndex = new Dictionary<string, AssetID>();
 
@@ -25,6 +27,8 @@ namespace UnityPackageExporter.Dependency
         /// <summary>Adds a file to the list of valid assets to check</summary>
         public async Task AddFileAsync(string file)
         {
+            Logger.Trace("Adding file {0}", file);
+
             string filePath = Path.GetExtension(file) == ".meta" ? file : $"{file}.meta";
             var assetID = await AssetParser.ReadAssetIDAsync(filePath);
             fileIndex[assetID] = new FileInfo(filePath.Substring(0, filePath.Length - 5));
@@ -42,6 +46,8 @@ namespace UnityPackageExporter.Dependency
         /// <returns></returns>
         public async Task<IReadOnlyCollection<string>> FindAllDependenciesAsync(IEnumerable<string> files)
         {
+            Logger.Info("Finding Dependencies");
+
             HashSet<string> results = new HashSet<string>();
             Queue<string> queue = new Queue<string>();
             foreach (var item in files)
@@ -53,9 +59,11 @@ namespace UnityPackageExporter.Dependency
             // While we have a queue, push the file if we can
             while (queue.TryDequeue(out var currentFile))
             {
+                Logger.Trace("Searching {0}", currentFile);
                 var dependencies = await FindFileDependenciesAsync(currentFile);
                 foreach (var dependency in dependencies)
                 {
+                    Logger.Trace(" - Found {0}", dependency);
                     if (results.Add(dependency))
                         queue.Enqueue(dependency);
                 }

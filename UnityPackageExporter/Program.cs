@@ -22,7 +22,7 @@ namespace UnityPackageExporter
     class Program
     {
 
-        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+        private static readonly NLog.Logger Logger = NLog.LogManager.GetLogger("UnityPackageExporter");
 
         static int Main(string[] args)
         {
@@ -119,7 +119,7 @@ namespace UnityPackageExporter
 
                     // Finally flush and tell them we done
                     //await packer.FlushAsync();
-                    Console.WriteLine("Finished Packing in {0}ms", timer.ElapsedMilliseconds);
+                    Logger.Info("Finished Packing in {0}ms", timer.ElapsedMilliseconds);
                 });
             }, sourceArg, outputArg, assetPatternOpt, excludePatternOpt, skipDepOpt, assetRootOpt, verboseOpt);
 
