@@ -23,8 +23,8 @@ namespace UnityPackageExporter.Package
         private GZipOutputStream _gzStream;
         private TarOutputStream _tarStream;
 
-        private HashSet<FileInfo> _files;
-        public IReadOnlyCollection<FileInfo> Files => _files;
+        private HashSet<string> _files;
+        public IReadOnlyCollection<string> Files => _files;
 
         /// <summary>
         /// Creates a new Packer that writes to the output file
@@ -46,7 +46,7 @@ namespace UnityPackageExporter.Package
             ProjectPath = projectPath;
             OutputPath = null;
 
-            _files = new HashSet<FileInfo>();
+            _files = new HashSet<string>();
             _outStream = stream;
             _gzStream = new GZipOutputStream(_outStream);
             _tarStream = new TarOutputStream(_gzStream);
@@ -63,7 +63,7 @@ namespace UnityPackageExporter.Package
         {
             FileInfo file = new FileInfo(Path.GetExtension(filePath) == ".meta" ? filePath.Substring(0, filePath.Length - 5) : filePath); 
             if (!file.Exists) throw new FileNotFoundException();
-            if (!_files.Add(file)) return false;
+            if (!_files.Add(file.FullName)) return false;
 
             string relativePath = Path.GetRelativePath(ProjectPath, file.FullName);
             string metaFile = $"{file.FullName}.meta";
