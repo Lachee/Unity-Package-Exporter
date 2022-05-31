@@ -78,14 +78,14 @@ namespace UnityPackageExporter.Package
         /// <param name="tarIn"></param>
         /// <param name="outStream"></param>
         /// <returns></returns>
-        public static long ReadNextFile(this TarInputStream tarIn, Stream outStream)
+        public async static Task<long> ReadNextFileAsync(this TarInputStream tarIn, Stream outStream)
         {
             long totalRead = 0;
             byte[] buffer = new byte[4096];
             bool isAscii = true;
             bool cr = false;
 
-            int numRead = tarIn.Read(buffer, 0, buffer.Length);
+            int numRead = await tarIn.ReadAsync(buffer, 0, buffer.Length);
             int maxCheck = Math.Min(200, numRead);
 
             totalRead += numRead;
@@ -118,7 +118,7 @@ namespace UnityPackageExporter.Package
                 else
                     outStream.Write(buffer, 0, numRead);
 
-                numRead = tarIn.Read(buffer, 0, buffer.Length);
+                numRead = await tarIn.ReadAsync(buffer, 0, buffer.Length);
                 totalRead += numRead;
             }
 
