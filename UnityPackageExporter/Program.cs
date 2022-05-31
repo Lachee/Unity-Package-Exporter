@@ -22,6 +22,8 @@ namespace UnityPackageExporter
     class Program
     {
 
+        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
         static int Main(string[] args)
         {
             var command = BuildCommands();
@@ -58,6 +60,12 @@ namespace UnityPackageExporter
                 getDefaultValue: () => "Assets"
             );
 
+            var verboseOpt = new Option<NLog.LogLevel>(
+                aliases: new[] { "--verbose", "--log-level", "-v" },
+                description: "Sets the logging level",
+                getDefaultValue: () => NLog.LogLevel.Warn
+            );
+
             //var command = new Command(name: "pack", description: "Packs the assets in a Unity Project")
             var command = new RootCommand(description: "Packs the assets in a Unity Project")
             {
@@ -66,38 +74,52 @@ namespace UnityPackageExporter
                 assetPatternOpt, 
                 excludePatternOpt,
                 skipDepOpt,
-                assetRootOpt
+                assetRootOpt,
+                verboseOpt,
             };
 
-            command.SetHandler(async (DirectoryInfo source, FileInfo output, IEnumerable<string> assetPattern, IEnumerable<string> excludePattern, bool skipDep, string assetRoot) =>
+            command.SetHandler(async (DirectoryInfo source, FileInfo output, IEnumerable<string> assetPattern, IEnumerable<string> excludePattern, bool skipDep, string assetRoot, NLog.LogLevel verbose) =>
             {
-                // Make the output file (touch it) so we can exclude
-                await File.WriteAllBytesAsync(output.FullName, new byte[0]);
-
-                Stopwatch timer = Stopwatch.StartNew();
-                using DependencyAnalyser analyser = !skipDep ? await DependencyAnalyser.CreateAsync(Path.Combine(source.FullName, assetRoot), excludePattern) : null;
-                using Packer packer = new Packer(source.FullName, output.FullName);
-
-                // Match all the assets we need
-                Matcher assetMatcher = new Matcher();
-                assetMatcher.AddIncludePatterns(assetPattern);
-                assetMatcher.AddExcludePatterns(excludePattern);
-                assetMatcher.AddExclude(output.Name);
-
-                var matchedAssets = assetMatcher.GetResultsInFullPath(source.FullName);
-                await packer.AddAssetsAsync(matchedAssets);
-
-                if (!skipDep)
+                // Setup the logger
+                // TODO: Make logger setup a middleware in command builder
+                var config = new NLog.Config.LoggingConfiguration();
+                var consoleTarget = new NLog.Targets.ConsoleTarget
                 {
-                    var results = await analyser.FindDependenciesAsync(matchedAssets);
-                    await packer.AddAssetsAsync(results);
-                }
+                    Name = "console",
+                    Layout = "${longdate}|${level:uppercase=true}|${logger}|${message}",
+                };
+                config.AddRule(verbose, NLog.LogLevel.Fatal, consoleTarget);
+                NLog.LogManager.Configuration = config;
 
-                // Finally flush and tell them we done
-                await packer.FlushAsync();
-                Console.WriteLine("Finished Packing in {0}ms", timer.ElapsedMilliseconds);
+                await Logger.Swallow(async () =>
+                {
+                    // Make the output file (touch it) so we can exclude
+                    await File.WriteAllBytesAsync(output.FullName, new byte[0]);
 
-            }, sourceArg, outputArg, assetPatternOpt, excludePatternOpt, skipDepOpt, assetRootOpt);
+                    Stopwatch timer = Stopwatch.StartNew();
+                    using DependencyAnalyser analyser = !skipDep ? await DependencyAnalyser.CreateAsync(Path.Combine(source.FullName, assetRoot), excludePattern) : null;
+                    using Packer packer = new Packer(source.FullName, output.FullName);
+
+                    // Match all the assets we need
+                    Matcher assetMatcher = new Matcher();
+                    assetMatcher.AddIncludePatterns(assetPattern);
+                    assetMatcher.AddExcludePatterns(excludePattern);
+                    assetMatcher.AddExclude(output.Name);
+
+                    var matchedAssets = assetMatcher.GetResultsInFullPath(source.FullName);
+                    await packer.AddAssetsAsync(matchedAssets);
+
+                    if (!skipDep)
+                    {
+                        var results = await analyser.FindDependenciesAsync(matchedAssets);
+                        await packer.AddAssetsAsync(results);
+                    }
+
+                    // Finally flush and tell them we done
+                    await packer.FlushAsync();
+                    Console.WriteLine("Finished Packing in {0}ms", timer.ElapsedMilliseconds);
+                });
+            }, sourceArg, outputArg, assetPatternOpt, excludePatternOpt, skipDepOpt, assetRootOpt, verboseOpt);
 
             return command;
         }
