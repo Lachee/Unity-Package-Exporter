@@ -185,7 +185,7 @@ namespace UnityPackageExporter.Package
                         break;
 
                     default:
-                        Console.WriteLine("SKIP: {0}", tarEntry.Name);
+                        Logger.Warn("Skipping {0} because its a unkown file", tarEntry.Name);
                         break;
                 }
             }
