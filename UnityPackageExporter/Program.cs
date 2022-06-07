@@ -11,6 +11,9 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
+using UnityPackageExporter.Dependency;
+using UnityPackageExporter.Package;
 
 //-project "C:\Users\TasGDS\Documents\GitHub\discord-rpc-csharp\Unity Example\\" -dir "Assets\\"
 //-project bin/ExampleProject/ -unpack package.unitypackage
@@ -18,374 +21,110 @@ namespace UnityPackageExporter
 {
     class Program
     {
-        static int Main(string[] args) 
+
+        private static readonly NLog.Logger Logger = NLog.LogManager.GetLogger("UnityPackageExporter");
+
+        static int Main(string[] args)
         {
-            var projectOption = new Option<DirectoryInfo>(new[] { "--project", "--input", "-i" },
-                   description: "Project to pack"
-            );
-
-            var outputOption = new Option<FileInfo>(new[] { "--output", "-o" },
-                    description: "Output package"
-            );
-
-            var assetOption = new Option<IEnumerable<string>>(new[] { "--assets", "-a" },
-                    getDefaultValue: () => new string[] { "**.*" },
-                    description: "Adds an asset to the pack. Supports glob matching."
-            );
-
-            var excludeOption = new Option<IEnumerable<string>>(new[] { "--exclude", "-e" },
-                getDefaultValue: () => new string[] { },
-                description: "Excludes an asset from the pack. Supports glob matching."
-            );
-
-            var unpackOption = new Option<IEnumerable<string>>(new[] { "--unpack" },
-                 getDefaultValue: () => new string[] { },
-                 description: "Unpacks an asset bundle before proceeding. Does not support glob matching."
-            );
-
-            var command = new RootCommand
-            {
-               projectOption,
-               outputOption,
-               assetOption,
-               excludeOption,
-               unpackOption
-            };
-
-            command.Description = "Exports projects to Unity packages";
-            command.SetHandler((DirectoryInfo project, FileInfo output, IEnumerable<string> assetPatterns, IEnumerable<string> excludePatterns, IEnumerable<string> unpacks) =>
-            {
-
-                // Unpack previous packs
-                foreach (var pack in unpacks)
-                {
-                    Console.WriteLine("Unpacking unitypackage '{0}'", pack);
-                    UnpackAssets(pack, project.FullName);
-                }
-
-                // Make the output file (touch it) so we can exclude
-                File.WriteAllBytes(output.FullName, new byte[0]);
-
-                // Match the assets and start packing them
-                Console.WriteLine("Packing...");
-                var stopwatch = new Stopwatch();
-
-                Matcher matcher = new Matcher();
-                matcher.AddIncludePatterns(assetPatterns);
-                matcher.AddExcludePatterns(excludePatterns);
-                matcher.AddExclude(output.Name);
-
-                var results = matcher.GetResultsInFullPath(project.FullName);
-                PackAssets(output.FullName, project.FullName, results, true);
-
-                stopwatch.Stop();
-                Console.WriteLine("Finished packing. Took {0}ms", stopwatch.ElapsedMilliseconds);
-            }, projectOption, outputOption, assetOption, excludeOption, unpackOption);
+            var command = BuildCommands();
             return command.Invoke(args);
         }
 
-        public static void UnpackAssets(string package, string unityProjectRoot, bool allowOverride = true)
+        /// <summary>Builds the pack command</summary>
+        static RootCommand BuildCommands()
         {
-            Console.WriteLine("Unpacking Package '{0}' into ", package, unityProjectRoot);
+            var sourceArg = new Argument<DirectoryInfo>(name: "source", description: "Unity Project Direcotry.");
+            var outputArg = new Argument<FileInfo>(name: "output", description: "Output .unitypackage file");
 
-            Dictionary<string, PackageExtraction> assets = new Dictionary<string, PackageExtraction>();
+            var assetPatternOpt = new Option<IEnumerable<string>>(
+                aliases: new[] { "--assets", "-a" },
+                description: "Adds an asset to the pack. Supports glob matching.",
+                getDefaultValue: () => new[] { "**.*" }
+            );
 
-            if (!File.Exists(package))
+            var excludePatternOpt = new Option<IEnumerable<string>>(
+                aliases: new[] { "--exclude", "-e" },
+                description: "Excludes an asset from the pack. Supports glob matching.",
+                getDefaultValue: () => new[] { "Library/**.*", "**/.*" }
+            );
+
+            var skipDepOpt = new Option<bool>(
+                aliases: new[] { "--skip-dependecy-check" },
+                description: "Skips dependency analysis. Disabling this feature may result in missing assets in your packages.",
+                getDefaultValue: () => false
+            );
+
+            var assetRootOpt = new Option<string>(
+                aliases: new[] { "--asset-root", "-r" },
+                description: "Sets the root directory for the assets. Used in dependency analysis to only check files that could be potentially included.",
+                getDefaultValue: () => "Assets"
+            );
+
+            var verboseOpt = new Option<NLog.LogLevel>(
+                aliases: new[] { "--verbose", "--log-level", "-v" },
+                description: "Sets the logging level",
+                getDefaultValue: () => NLog.LogLevel.Info
+            );
+
+            //var command = new Command(name: "pack", description: "Packs the assets in a Unity Project")
+            var command = new RootCommand(description: "Packs the assets in a Unity Project")
             {
-                Console.WriteLine("ERR: File not found!");
-                return;
-            }
+                sourceArg,
+                outputArg,
+                assetPatternOpt, 
+                excludePatternOpt,
+                skipDepOpt,
+                assetRootOpt,
+                verboseOpt,
+            };
 
-            using (var fileStream = new FileStream(package, FileMode.Open))
+            command.SetHandler(async (DirectoryInfo source, FileInfo output, IEnumerable<string> assetPattern, IEnumerable<string> excludePattern, bool skipDep, string assetRoot, NLog.LogLevel verbose) =>
             {
-                using (var gzoStream = new GZipInputStream(fileStream))
-                using (var tarStream = new TarInputStream(gzoStream))
+                // Setup the logger
+                // TODO: Make logger setup a middleware in command builder
+                var config = new NLog.Config.LoggingConfiguration();
+                var consoleTarget = new NLog.Targets.ConsoleTarget
                 {
-                    TarEntry tarEntry;
-                    while ((tarEntry = tarStream.GetNextEntry()) != null)
+                    Name = "console",
+                    Layout = "${time}|${level:uppercase=true}|${logger}|${message}",
+                };
+                config.AddRule(verbose, NLog.LogLevel.Fatal, consoleTarget);
+                NLog.LogManager.Configuration = config;
+
+                await Logger.Swallow(async () =>
+                {
+                    Logger.Info("Packing {0}", source.FullName);
+
+                    // Make the output file (touch it) so we can exclude
+                    await File.WriteAllBytesAsync(output.FullName, new byte[0]);
+
+                    Stopwatch timer = Stopwatch.StartNew();
+                    using DependencyAnalyser analyser = !skipDep ? await DependencyAnalyser.CreateAsync(Path.Combine(source.FullName, assetRoot), excludePattern) : null;
+                    using Packer packer = new Packer(source.FullName, output.FullName);
+
+                    // Match all the assets we need
+                    Matcher assetMatcher = new Matcher();
+                    assetMatcher.AddIncludePatterns(assetPattern);
+                    assetMatcher.AddExcludePatterns(excludePattern);
+                    assetMatcher.AddExclude(output.Name);
+
+                    var matchedAssets = assetMatcher.GetResultsInFullPath(source.FullName);
+                    await packer.AddAssetsAsync(matchedAssets);
+
+                    if (!skipDep)
                     {
-                        if (tarEntry.IsDirectory)
-                            continue;
-                        
-                        string[] parts = tarEntry.Name.Split('/');
-                        string file = parts[1];
-                        string guid = parts[0];
-                        byte[] data = null;
-
-                        //Create a new memory stream and read the entries into it.
-                        using (MemoryStream mem = new MemoryStream())
-                        {
-                            tarStream.ReadNextFile(mem);
-                            data = mem.ToArray();
-                        }
-
-                        //Make sure we actually read data
-                        if (data == null)
-                        {
-                            Console.WriteLine("NDATA: {0}", tarEntry.Name);
-                            continue;
-                        }
-
-                        //Add a new element
-                        if (!assets.ContainsKey(guid))
-                            assets.Add(guid, new PackageExtraction());
-
-                        switch(file)
-                        {
-                            case "asset":
-                                assets[guid].Asset = data;
-                                break;
-
-                            case "asset.meta":
-                                assets[guid].Metadata = data;
-                                break;
-
-                            case "pathname":
-                                string path = Encoding.ASCII.GetString(data);
-                                assets[guid].PathName = path;
-                                break;
-
-                            default:
-                                Console.WriteLine("SKIP: {0}", tarEntry.Name);
-                                break;
-                        }
-
-                        if (assets[guid].IsWriteable())
-                        {
-                            Console.WriteLine("WRITE: {0}", assets[guid].PathName);
-                            assets[guid].Write(unityProjectRoot);
-                            assets.Remove(guid);
-                        }
+                        var results = await analyser.FindDependenciesAsync(matchedAssets);
+                        await packer.AddAssetsAsync(results);
                     }
-                }
-            }
+
+                    // Finally flush and tell them we done
+                    //await packer.FlushAsync();
+                    Logger.Info("Finished Packing in {0}ms", timer.ElapsedMilliseconds);
+                });
+            }, sourceArg, outputArg, assetPatternOpt, excludePatternOpt, skipDepOpt, assetRootOpt, verboseOpt);
+
+            return command;
         }
 
-        public static void PackAssets(string packageOutput, string unityProjectRoot, IEnumerable<string> assets, bool overwrite = true)
-        {
-            Console.WriteLine("Packing Project '{0}'", unityProjectRoot);
-
-            //Create all the streams
-            using (var fileStream = new FileStream(packageOutput, FileMode.Create))
-            {
-                using (var gzoStream = new GZipOutputStream(fileStream))
-                using (var tarStream = new TarOutputStream(gzoStream))
-                {
-                    //Go over every asset, adding it
-                    foreach(var asset in assets)
-                    {
-                        PackUnityAsset(tarStream, unityProjectRoot, asset);
-                    }
-                }
-            }
-        }
-
-        private static void PackUnityAsset(TarOutputStream tarStream, string unityProjectRoot, string assetFile)
-        {
-            //If the file doesnt exist, skip it
-            if (!File.Exists(assetFile))
-            {
-                Console.WriteLine("SKIP: " + assetFile);
-                return;
-            }
-
-            //Make sure its not a meta file
-            if (Path.GetExtension(assetFile).ToLowerInvariant() == ".meta")
-            {
-                //Siently skip meta files
-                return;
-            }
-
-            //Get all the paths
-            string relativePath = Path.GetRelativePath(unityProjectRoot, assetFile);
-            string metaFile = $"{assetFile}.meta";
-            string metaContents = null;
-            string guidString = "";
-
-            //If the file doesnt have a meta then skip it
-            if (!File.Exists(metaFile))
-            {
-                //Meta file is missing so we have to generate it ourselves.
-                Console.WriteLine("MISSING ASSET FILE: " + assetFile);
-
-                Guid guid = Guid.NewGuid();
-                foreach (var byt in guid.ToByteArray())
-                    guidString += string.Format("{0:X2}", byt);
-
-                var builder = new System.Text.StringBuilder();
-                builder.Append("guid: " + new Guid()).Append("\n");
-                metaContents = builder.ToString();
-            }
-            else
-            {
-                //Read the meta contents
-                metaContents = File.ReadAllText(metaFile);
-
-                int guidIndex = metaContents.IndexOf("guid: ");
-                guidString = metaContents.Substring(guidIndex + 6, 32);
-            }
-
-            //Add the file
-            Console.WriteLine("ADD: " + relativePath);
-            
-            //Add the asset, meta and pathname.
-            tarStream.WriteFile(assetFile, $"{guidString}/asset");
-            tarStream.WriteAllText($"{guidString}/asset.meta", metaContents);
-            tarStream.WriteAllText($"{guidString}/pathname", relativePath.Replace('\\', '/'));            
-        }
-        
-    }
-
-    public static class TarOutputExtensions
-    {
-        public static void WriteFile(this TarOutputStream stream, string source, string dest)
-        {
-            using (Stream inputStream = File.OpenRead(source))
-            {
-                long fileSize = inputStream.Length;
-
-                // Create a tar entry named as appropriate. You can set the name to anything,
-                // but avoid names starting with drive or UNC.
-                TarEntry entry = TarEntry.CreateTarEntry(dest);
-
-                // Must set size, otherwise TarOutputStream will fail when output exceeds.
-                entry.Size = fileSize;
-
-                // Add the entry to the tar stream, before writing the data.
-                stream.PutNextEntry(entry);
-
-                // this is copied from TarArchive.WriteEntryCore
-                byte[] localBuffer = new byte[32 * 1024];
-                while (true)
-                {
-                    int numRead = inputStream.Read(localBuffer, 0, localBuffer.Length);
-                    if (numRead <= 0)
-                        break;
-
-                    stream.Write(localBuffer, 0, numRead);
-                }
-
-                //Close the entry
-                stream.CloseEntry();
-            }
-        }
-
-        public static void WriteAllText(this TarOutputStream stream, string dest, string content)
-        {
-            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(content);
-            
-            TarEntry entry = TarEntry.CreateTarEntry(dest);
-            entry.Size = bytes.Length;
-
-            // Add the entry to the tar stream, before writing the data.
-            stream.PutNextEntry(entry);
-
-            // this is copied from TarArchive.WriteEntryCore
-            stream.Write(bytes, 0, bytes.Length);
-
-            //Close the entry
-            stream.CloseEntry();
-        }
-
-        public static long ReadNextFile(this TarInputStream tarIn, Stream outStream)
-        {
-            long totalRead = 0;
-            byte[] buffer = new byte[4096];
-            bool isAscii = true;
-            bool cr = false;
-
-            int numRead = tarIn.Read(buffer, 0, buffer.Length);
-            int maxCheck = Math.Min(200, numRead);
-
-            totalRead += numRead;
-
-            for (int i = 0; i < maxCheck; i++)
-            {
-                byte b = buffer[i];
-                if (b < 8 || (b > 13 && b < 32) || b == 255)
-                {
-                    isAscii = false;
-                    break;
-                }
-            }
-
-            while (numRead > 0)
-            {
-                if (isAscii)
-                {
-                    // Convert LF without CR to CRLF. Handle CRLF split over buffers.
-                    for (int i = 0; i < numRead; i++)
-                    {
-                        byte b = buffer[i];     // assuming plain Ascii and not UTF-16
-                        if (b == 10 && !cr)     // LF without CR
-                            outStream.WriteByte(13);
-                        cr = (b == 13);
-
-                        outStream.WriteByte(b);
-                    }
-                }
-                else
-                    outStream.Write(buffer, 0, numRead);
-
-                numRead = tarIn.Read(buffer, 0, buffer.Length);
-                totalRead += numRead;
-            }
-
-            return totalRead;
-        }
     }
 }
-
-#if DONTDOTHIS
-
-        static void GuidShit() { 
-            string project = @"D:\Users\Lachee\Documents\C# Projects\2015 Projects\discord-rpc-csharp\Unity Example\";
-            string file = @"Assets\Discord RPC\Editor\CharacterLimitAttributeDrawer.cs";
-            string path = project + file;
-
-            string contents = File.ReadAllText(path + ".meta");
-            int guidindex = contents.IndexOf("guid: ");
-            string readGUID = contents.Substring(guidindex + 6, 32);
-            Console.WriteLine(readGUID);
-
-            string calcGUID = CalculateGUID(project, file, true);
-            Console.WriteLine(calcGUID);
-
-           calcGUID = CalculateGUID(project, file, false);
-           Console.WriteLine(calcGUID);
-           
-           file = file.Remove(0, 7);
-           calcGUID = CalculateGUID(project, file, true);
-           Console.WriteLine(calcGUID);
-           
-           calcGUID = CalculateGUID(project, file, false);
-           Console.WriteLine(calcGUID);
-
-            Console.WriteLine("Match: {0}", readGUID == calcGUID);
-            Console.ReadKey();
-        }
-
-        private static string CalculateGUID(string project, string file, bool replace)
-        {
-            string text = "";
-            Guid guid = Guid.Empty;
-
-            FileInfo fi = new FileInfo(project + file);
-            string hashable = file; // file;// +  fi.CreationTime;
-
-            //hashable = hashable.ToLowerInvariant();
-            if (replace) hashable = hashable.Replace('\\', '/');
-
-            using (MD5 md5 = MD5.Create())
-            {
-                byte[] hash = md5.ComputeHash(Encoding.ASCII.GetBytes(hashable));
-                //hash.Reverse();
-                guid = new Guid(hash);
-            }
-
-
-            foreach (var byt in guid.ToByteArray()) text += string.Format("{0:X2}", byt);
-            return text.ToLowerInvariant();
-        }
-
-#endif

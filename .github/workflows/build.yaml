@@ -1,0 +1,42 @@
+name: Build Release
+
+on:
+  push:
+    branches:
+      - master
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  # Package the assets
+  package:
+    strategy:
+      matrix:
+        contained: [ true, false ]
+        os: [ ubuntu-latest, windows-latest ]
+        include:
+          - os: ubuntu-latest
+            runtime: linux-x64
+          - os: windows-latest
+            runtime: win-x64
+          - contained: true
+            name: '-contained'
+          - contained: false
+            name: ''
+    runs-on: ${{ matrix.os }}
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+      - uses: actions/setup-dotnet@v2
+
+      # Install the packager
+      - name: Publish
+        run: dotnet publish -c Release -o bin -r ${{matrix.runtime}} --self-contained ${{matrix.contained}} UnityPackageExporter
+        
+      # Upload artifact
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3.0.0
+        with:
+          name: "UnityPackageExporter-${{matrix.runtime}}${{matrix.name}}"
+          path: bin/*
