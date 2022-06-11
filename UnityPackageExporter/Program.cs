@@ -26,12 +26,74 @@ namespace UnityPackageExporter
 
         static int Main(string[] args)
         {
-            var command = BuildCommands();
-            return command.Invoke(args);
+            var rootCommand = new RootCommand("Manages Unity packages and assets");
+
+            var packCommand = BuildPackCommand();
+            rootCommand.AddCommand(packCommand);
+
+            var findCommand = BuildFindCommand();
+            rootCommand.AddCommand(findCommand);
+
+            return rootCommand.Invoke(args);
+        }
+
+        static Command BuildFindCommand()
+        {
+            var sourceArg = new Argument<DirectoryInfo>(name: "source", description: "Unity Project Direcotry.");
+            var assetPatternOpt = new Option<IEnumerable<string>>(
+                aliases: new[] { "--guid", "-g" },
+                description: "Asset GUID to search"
+            );
+            var verboseOpt = new Option<NLog.LogLevel>(
+                aliases: new[] { "--verbose", "--log-level", "-v" },
+                description: "Sets the logging level",
+                getDefaultValue: () => NLog.LogLevel.Info
+            );
+
+            var command = new Command(name: "find", description: "Finds the GUIDs")
+            {
+                sourceArg,
+                assetPatternOpt,
+                verboseOpt,
+            };
+
+            command.SetHandler(async (DirectoryInfo source, IEnumerable<string> guids, NLog.LogLevel verbose) =>
+            {
+                var config = new NLog.Config.LoggingConfiguration();
+                var consoleTarget = new NLog.Targets.ConsoleTarget
+                {
+                    Name = "console",
+                    Layout = "${time}|${level:uppercase=true}|${logger}|${message}",
+                };
+                config.AddRule(verbose, NLog.LogLevel.Fatal, consoleTarget);
+                NLog.LogManager.Configuration = config;
+
+                await Logger.Swallow(async () =>
+                {
+                    // Prepare the analyser
+                    AssetAnalyser analyser = new AssetAnalyser(source.FullName);
+                    Matcher assetMatcher = new Matcher();
+                    assetMatcher.AddInclude("**/*.meta");
+                    var assetFiles = assetMatcher.GetResultsInFullPath(source.FullName);
+                    await analyser.AddFilesAsync(assetFiles);
+
+                    // Prepare the reverse map
+                    foreach(var guid in guids)
+                    {
+                        Logger.Trace($"Searching for '{guid}'");
+                        FileInfo file = analyser.FindGUID(guid);
+                        if (file != null) 
+                            Logger.Info($"{guid}: {file.FullName}");
+                        else
+                            Logger.Info($"{guid}: ");
+                    }
+                });
+            }, sourceArg, assetPatternOpt, verboseOpt);
+            return command;
         }
 
         /// <summary>Builds the pack command</summary>
-        static RootCommand BuildCommands()
+        static Command BuildPackCommand()
         {
             var sourceArg = new Argument<DirectoryInfo>(name: "source", description: "Unity Project Direcotry.");
             var outputArg = new Argument<FileInfo>(name: "output", description: "Output .unitypackage file");
@@ -67,7 +129,7 @@ namespace UnityPackageExporter
             );
 
             //var command = new Command(name: "pack", description: "Packs the assets in a Unity Project")
-            var command = new RootCommand(description: "Packs the assets in a Unity Project")
+            var command = new Command(name: "pack", description: "Packs the assets in a Unity Project")
             {
                 sourceArg,
                 outputArg,

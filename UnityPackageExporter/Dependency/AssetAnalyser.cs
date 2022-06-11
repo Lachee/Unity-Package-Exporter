@@ -17,6 +17,8 @@ namespace UnityPackageExporter.Dependency
         private Dictionary<AssetID, FileInfo> fileIndex = new Dictionary<AssetID, FileInfo>();
         private Dictionary<string, AssetID> guidIndex = new Dictionary<string, AssetID>();
 
+        public IReadOnlyDictionary<AssetID, FileInfo> Assets => fileIndex;
+
         public string ProjectPath { get; }
 
         public AssetAnalyser(string projectPath)
@@ -39,6 +41,14 @@ namespace UnityPackageExporter.Dependency
         public Task AddFilesAsync(IEnumerable<string> files)
             => Task.WhenAll(files.Select(file => AddFileAsync(file)));
 
+        /// <summary>
+        /// Finds the file with the given GUID
+        /// </summary>
+        /// <param name="guid"></param>
+        /// <returns>The FIleInfo, otherwise null if it does not exist</returns>
+        public FileInfo FindGUID(string guid)
+            => fileIndex.Where(kp => kp.Key.guid == guid).Select(kp => kp.Value).FirstOrDefault();
+        
         /// <summary>
         /// Gets a list of all dependencies for the given list of files
         /// </summary>
