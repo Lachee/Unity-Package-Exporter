@@ -35,9 +35,9 @@ namespace UnityPackageExporter.Dependency
             foreach (Match match in Pattern.Matches(content))
             {
                 if (match.Groups[2].Value == "guid")
-                    ID.guid = match.Groups[3].Value;
+                    ID.guid = match.Groups[3].Value.Trim();
                 else
-                    ID.fileID = match.Groups[3].Value;
+                    ID.fileID = match.Groups[3].Value.Trim();
             }
 
 
@@ -87,9 +87,9 @@ namespace UnityPackageExporter.Dependency
 
                 // Update the fields
                 if (match.Groups[2].Value == "fileID")
-                    reference.ID.fileID = match.Groups[3].Value;
+                    reference.ID.fileID = match.Groups[3].Value.Trim();
                 else
-                    reference.ID.guid = match.Groups[3].Value;
+                    reference.ID.guid = match.Groups[3].Value.Trim();
 
                 // Add the reference if it needs it
                 if (addReference)

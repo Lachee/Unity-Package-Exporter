@@ -40,9 +40,16 @@ namespace UnityPackageExporter
         static Command BuildFindCommand()
         {
             var sourceArg = new Argument<DirectoryInfo>(name: "source", description: "Unity Project Direcotry.");
-            var assetPatternOpt = new Option<IEnumerable<string>>(
+
+            var guidOp = new Option<IEnumerable<string>>(
                 aliases: new[] { "--guid", "-g" },
-                description: "Asset GUID to search"
+                description: "GUID to scan for",
+                getDefaultValue: () => new string[0]
+            );
+            var referenceOp = new Option<IEnumerable<string>>(
+                aliases: new[] { "--assets", "-a" },
+                description: "Scans an asset for all referenced files. Supports glob matching.",
+                getDefaultValue: () => new[] { "**.*" }
             );
             var verboseOpt = new Option<NLog.LogLevel>(
                 aliases: new[] { "--verbose", "--log-level", "-v" },
@@ -53,11 +60,12 @@ namespace UnityPackageExporter
             var command = new Command(name: "find", description: "Finds the GUIDs")
             {
                 sourceArg,
-                assetPatternOpt,
+                guidOp,
+                referenceOp,
                 verboseOpt,
             };
 
-            command.SetHandler(async (DirectoryInfo source, IEnumerable<string> guids, NLog.LogLevel verbose) =>
+            command.SetHandler(async (DirectoryInfo source, IEnumerable<string> guids, IEnumerable<string> referencePatterns, NLog.LogLevel verbose) =>
             {
                 var config = new NLog.Config.LoggingConfiguration();
                 var consoleTarget = new NLog.Targets.ConsoleTarget
@@ -77,18 +85,34 @@ namespace UnityPackageExporter
                     var assetFiles = assetMatcher.GetResultsInFullPath(source.FullName);
                     await analyser.AddFilesAsync(assetFiles);
 
-                    // Prepare the reverse map
-                    foreach(var guid in guids)
+                    // Search for all the GUIDs
+                    foreach (var guid in guids)
                     {
-                        Logger.Trace($"Searching for '{guid}'");
-                        FileInfo file = analyser.FindGUID(guid);
-                        if (file != null) 
+                        Logger.Trace($"Searching for GUID '{guid}'");
+                        FileInfo file = analyser.FindFile(guid);
+                        if (file != null)
+                            Logger.Info($"{guid}: {file.FullName}");
+                        else
+                            Logger.Info($"{guid}: ");
+                    }
+
+                    // Search for all the References
+
+                    Matcher referenceMatcher = new Matcher();
+                    referenceMatcher.AddIncludePatterns(referencePatterns);
+                    var refFiles = referenceMatcher.GetResultsInFullPath(source.FullName);
+                    var refGUIDS = await analyser.FindAllGUIDDependenciesAsnyc(refFiles);
+                    foreach (var guid in refGUIDS)
+                    {
+                        Logger.Trace($"Searching for GUID '{guid}'");
+                        FileInfo file = analyser.FindFile(guid);
+                        if (file != null)
                             Logger.Info($"{guid}: {file.FullName}");
                         else
                             Logger.Info($"{guid}: ");
                     }
                 });
-            }, sourceArg, assetPatternOpt, verboseOpt);
+            }, sourceArg, guidOp, referenceOp, verboseOpt);
             return command;
         }
 

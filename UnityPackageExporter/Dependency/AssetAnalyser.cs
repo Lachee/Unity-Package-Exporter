@@ -46,12 +46,25 @@ namespace UnityPackageExporter.Dependency
         /// </summary>
         /// <param name="guid"></param>
         /// <returns>The FIleInfo, otherwise null if it does not exist</returns>
-        public FileInfo FindGUID(string guid)
+        public FileInfo FindFile(string guid)
             => fileIndex.Where(kp => kp.Key.guid == guid).Select(kp => kp.Value).FirstOrDefault();
         
         /// <summary>
+        /// Finds the GUID for the given File
+        /// </summary>
+        /// <param name="file"></param>
+        /// <returns>Finds the GUID. If none is available then it will return null</returns>
+        public string FindGUID(string file)
+        {
+            if (guidIndex.TryGetValue(file, out var assetID))
+                return assetID.guid;
+            return null;
+        }
+
+        /// <summary>
         /// Gets a list of all dependencies for the given list of files
         /// </summary>
+        /// <remarks>This will not return missing prefabs/assets</remarks>
         /// <param name="files"></param>
         /// <returns></returns>
         public async Task<IReadOnlyCollection<string>> FindAllDependenciesAsync(IEnumerable<string> files)
@@ -83,8 +96,48 @@ namespace UnityPackageExporter.Dependency
         }
 
         /// <summary>
+        /// Gets a list of all dependencies from the given files.
+        /// </summary>
+        /// <param name="files"></param>
+        /// <remarks>Unlike file dependencies, this WILL return missing GUIDs, so additional filtering is required.</remarks>
+        /// <returns>List of GUIDs in the given files</returns>
+        public async Task<IReadOnlyCollection<string>> FindAllGUIDDependenciesAsnyc(IEnumerable<string> files)
+        {
+            HashSet<string> scannedFiles = new HashSet<string>();
+            HashSet<string> scannedGUIDs = new HashSet<string>();
+            Queue<string> queue = new Queue<string>();
+
+            // Add pending files
+            foreach (var item in files)
+            {
+                if (scannedFiles.Add(item))
+                    queue.Enqueue(item);
+            }
+
+            // While we have a queue, push the file if we can
+            while (queue.TryDequeue(out var currentFile))
+            {
+                Logger.Trace("Searching {0}", currentFile);
+                var dependencies = await FindGUIDDependenciesAsync(currentFile);
+                foreach (var dependency in dependencies)
+                {
+                    Logger.Trace(" - Found {0}", dependency);
+                    if (scannedGUIDs.Add(dependency))
+                    {
+                        var fileInfo = FindFile(dependency);
+                        if (fileInfo != null && scannedFiles.Add(fileInfo.FullName)) 
+                            queue.Enqueue(dependency);
+                    }
+                }
+            }
+
+            return scannedGUIDs;
+        }
+
+        /// <summary>
         /// Get's a list of files this asset needs. 
         /// <para>This is a shallow search</para>
+        /// <remarks>This will not return missing prefabs/assets</remarks>
         /// </summary>
         public async Task<IReadOnlyCollection<string>> FindFileDependenciesAsync(string assetPath)
         {
@@ -93,10 +146,24 @@ namespace UnityPackageExporter.Dependency
             foreach(AssetID reference in references)
             {
                 if (TryGetFileFromGUID(reference.guid, out var info))
+                {
                     files.Add(info.FullName);
+                } 
+                else
+                {
+                    Logger.Warn($"Missing Asset: '{reference.guid}'");
+                }
             }
 
             return files;
+        }
+
+        /// <summary>Get's a list of GUIDs this asset needs.</summary>
+        /// <remarks>Unlike file dependencies, this WILL return missing GUIDs, so additional filtering is required.</remarks>
+        public async Task<IReadOnlyCollection<string>> FindGUIDDependenciesAsync(string assetPath)
+        {
+            AssetID[] references = await AssetParser.ReadReferencesAsync(assetPath);
+            return references.Select(r => r.guid).Where(guid => guid != null).ToHashSet();
         }
 
         private bool TryGetFileFromGUID(string guid, out FileInfo info) {
