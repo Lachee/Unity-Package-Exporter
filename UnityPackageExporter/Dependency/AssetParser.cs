@@ -44,8 +44,12 @@ namespace UnityPackageExporter.Dependency
             return ID;
         }
 
-        /// <summary>Pulls a list of FileID and GUIDs used by this file</summary>
-        public static async Task<AssetID[]> ReadReferencesAsync(string assetFilePath)
+        /// <summary>
+        /// Reads the asset and pulls the references from it.
+        /// </summary>
+        /// <param name="assetFilePath"></param>
+        /// <returns></returns>
+        public static async Task<IEnumerable<AssetID>> ParseAssetReferencesAsync(string assetFilePath)
         {
             // Validate it is a correct reference
             string ext = Path.GetExtension(assetFilePath);
@@ -96,7 +100,7 @@ namespace UnityPackageExporter.Dependency
                     references.Add(reference);
             }
 
-            return references.Select(pr => pr.ID).ToArray();
+            return references.Select(pr => pr.ID);
         }
     }
 }

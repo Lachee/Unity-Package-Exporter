@@ -34,9 +34,75 @@ namespace UnityPackageExporter
             var findCommand = BuildFindCommand();
             rootCommand.AddCommand(findCommand);
 
+            var referenceCommand = BuildReferenceCommand();
+            rootCommand.AddCommand(referenceCommand);
+
             return rootCommand.Invoke(args);
         }
 
+        static Command BuildReferenceCommand()
+        {
+            var sourceArg = new Argument<DirectoryInfo>(name: "source", description: "Unity Project Direcotry.");
+            var referenceOp = new Option<IEnumerable<string>>(
+                aliases: new[] { "--assets", "-a" },
+                description: "Scans an asset for all referenced files. Supports glob matching.",
+                getDefaultValue: () => new[] { "**.*" }
+            );
+            var deepOp = new Option<bool>(
+                aliases: new[] { "--deep", "-d" },
+                description: "Should the scan be deep and search the reference's references?",
+                getDefaultValue: () => false
+            );
+            var verboseOpt = new Option<NLog.LogLevel>(
+                aliases: new[] { "--verbose", "--log-level", "-v" },
+                description: "Sets the logging level",
+                getDefaultValue: () => NLog.LogLevel.Info
+            );
+
+            var command = new Command(name: "references", description: "Finds all references for the given assets")
+            {
+                sourceArg,
+                referenceOp,
+                deepOp,
+                verboseOpt,
+            };
+
+            command.SetHandler(async (DirectoryInfo source, IEnumerable<string> referencePatterns, bool deep, NLog.LogLevel verbose) =>
+            {
+                var config = new NLog.Config.LoggingConfiguration();
+                var consoleTarget = new NLog.Targets.ConsoleTarget
+                {
+                    Name = "console",
+                    Layout = "${time}|${level:uppercase=true}|${logger}|${message}",
+                };
+                config.AddRule(verbose, NLog.LogLevel.Fatal, consoleTarget);
+                NLog.LogManager.Configuration = config;
+
+                await Logger.Swallow(async () =>
+                {
+                    // Prepare the analyser
+                    AssetAnalyser analyser = new AssetAnalyser(source.FullName);
+                    Matcher assetMatcher = new Matcher();
+                    assetMatcher.AddInclude("**/*.meta");
+                    var assetFiles = assetMatcher.GetResultsInFullPath(source.FullName);
+                    await analyser.AddFilesAsync(assetFiles);
+
+                    // Search for all the References
+                    Matcher referenceMatcher = new Matcher();
+                    referenceMatcher.AddIncludePatterns(referencePatterns);
+
+                    var refFiles = referenceMatcher.GetResultsInFullPath(source.FullName);
+                    var files = await analyser.FindAllReferencesAsync(refFiles, deep);
+                    foreach (var file in files)
+                    {
+                        Logger.Info(file);
+                    }
+                });
+            }, sourceArg, referenceOp, deepOp, verboseOpt);
+            return command;
+        }
+
+        /// <summary>Builds the find command</summary>
         static Command BuildFindCommand()
         {
             var sourceArg = new Argument<DirectoryInfo>(name: "source", description: "Unity Project Direcotry.");
@@ -97,14 +163,13 @@ namespace UnityPackageExporter
                     }
 
                     // Search for all the References
-
                     Matcher referenceMatcher = new Matcher();
                     referenceMatcher.AddIncludePatterns(referencePatterns);
                     var refFiles = referenceMatcher.GetResultsInFullPath(source.FullName);
                     var refGUIDS = await analyser.FindAllGUIDDependenciesAsnyc(refFiles);
                     foreach (var guid in refGUIDS)
                     {
-                        Logger.Trace($"Searching for GUID '{guid}'");
+                        Logger.Trace($"Searching for Reference '{guid}'");
                         FileInfo file = analyser.FindFile(guid);
                         if (file != null)
                             Logger.Info($"{guid}: {file.FullName}");

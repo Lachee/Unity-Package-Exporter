@@ -14,7 +14,10 @@ namespace UnityPackageExporter.Dependency
     {
         private static readonly NLog.Logger Logger = NLog.LogManager.GetLogger("AssetAnalyser");
 
+        /// <summary>Map of AssetID -> FileName</summary>
         private Dictionary<AssetID, FileInfo> fileIndex = new Dictionary<AssetID, FileInfo>();
+
+        /// <summary>Map of GUID -> AssetID</summary>
         private Dictionary<string, AssetID> guidIndex = new Dictionary<string, AssetID>();
 
         public IReadOnlyDictionary<AssetID, FileInfo> Assets => fileIndex;
@@ -48,26 +51,75 @@ namespace UnityPackageExporter.Dependency
         /// <returns>The FIleInfo, otherwise null if it does not exist</returns>
         public FileInfo FindFile(string guid)
             => fileIndex.Where(kp => kp.Key.guid == guid).Select(kp => kp.Value).FirstOrDefault();
-        
+       
         /// <summary>
-        /// Finds the GUID for the given File
+        /// Finds all assets that depend on the given files
         /// </summary>
-        /// <param name="file"></param>
-        /// <returns>Finds the GUID. If none is available then it will return null</returns>
-        public string FindGUID(string file)
+        /// <param name="files">The path to the assets to scan for</param>
+        /// <param name="deep">Should the search be deep and scan for the reference's references?</param>
+        /// <returns>Collection of assets that require this asset</returns>
+        public async Task<IReadOnlyCollection<string>> FindAllReferencesAsync(IEnumerable<string> files, bool deep = true)
         {
-            if (guidIndex.TryGetValue(file, out var assetID))
-                return assetID.guid;
-            return null;
+            Logger.Info("Finding References");
+
+            HashSet<string> results = new HashSet<string>();
+            Queue<string> queue = new Queue<string>();
+            foreach (var item in files)
+            {
+                if (results.Add(item))
+                    queue.Enqueue(item);
+            }
+
+            // While we have a queue, push the file if we can
+            while (queue.TryDequeue(out var currentFile))
+            {
+                Logger.Trace("Searching {0}", currentFile);
+                var references = await FindShallowReferencesAsync(currentFile);
+                foreach (var reference in references)
+                {
+                    Logger.Trace(" - Found {0}", reference);
+                    if (results.Add(reference) && deep)
+                        queue.Enqueue(reference);
+                }
+            }
+
+            return results;
         }
 
         /// <summary>
-        /// Gets a list of all dependencies for the given list of files
+        /// Finds all assets that depend on the asset path
+        /// </summary>
+        /// <remarks>This is a shallow search and will only get the immediate references. For deep scans, use <see cref="FindAllReferencesAsync(IEnumerable{string})"/></remarks>
+        /// <param name="assetPath">The path to the asset to scan</param>
+        /// <returns>Collection of assets that require this asset</returns>
+        public async Task<IReadOnlyCollection<string>> FindShallowReferencesAsync(string assetPath)
+        {
+
+            string filePath = Path.GetExtension(assetPath) == ".meta" ? assetPath : $"{assetPath}.meta";
+            var assetID = await AssetParser.ReadAssetIDAsync(filePath);
+            if (!assetID.HasGUID) 
+                throw new ArgumentException("Asset is not within the list of loaded assets", "assetPath");
+
+            HashSet<string> references = new HashSet<string>();
+            foreach(var kp in fileIndex)
+            {
+                Logger.Trace("Checking {0}", kp.Value.FullName);
+                var dependencies = await AssetParser.ParseAssetReferencesAsync(kp.Value.FullName);
+                foreach (var dep in dependencies.Where(id => id.guid == assetID.guid))
+                    references.Add(kp.Value.FullName);
+            }
+
+            return references;
+        }
+
+        /// <summary>
+        /// Finds all assets that the given files depend on.
         /// </summary>
         /// <remarks>This will not return missing prefabs/assets</remarks>
-        /// <param name="files"></param>
-        /// <returns></returns>
-        public async Task<IReadOnlyCollection<string>> FindAllDependenciesAsync(IEnumerable<string> files)
+        /// <param name="files">The assets to find dependencies for.</param>
+        /// <param name="deep">Should the search be deep and the dependencies be scanned for dependencies?</param>
+        /// <returns>Collection of assets that the given assets require</returns>
+        public async Task<IReadOnlyCollection<string>> FindAllDependenciesAsync(IEnumerable<string> files, bool deep = true)
         {
             Logger.Info("Finding Dependencies");
 
@@ -83,17 +135,42 @@ namespace UnityPackageExporter.Dependency
             while (queue.TryDequeue(out var currentFile))
             {
                 Logger.Trace("Searching {0}", currentFile);
-                var dependencies = await FindFileDependenciesAsync(currentFile);
+                var dependencies = await FindShallowDependenciesAsync(currentFile);
                 foreach (var dependency in dependencies)
                 {
                     Logger.Trace(" - Found {0}", dependency);
-                    if (results.Add(dependency))
+                    if (results.Add(dependency) && deep)
                         queue.Enqueue(dependency);
                 }
             }
 
             return results;
         }
+
+        /// <summary>
+        /// Get's a list of files this asset needs. 
+        /// <para>This is a shallow search</para>
+        /// <remarks>This will not return missing prefabs/assets</remarks>
+        /// </summary>
+        public async Task<IReadOnlyCollection<string>> FindShallowDependenciesAsync(string assetPath)
+        {
+            var references = await AssetParser.ParseAssetReferencesAsync(assetPath);
+            HashSet<string> files = new HashSet<string>();
+            foreach (AssetID reference in references)
+            {
+                if (TryGetFileFromGUID(reference.guid, out var info))
+                {
+                    files.Add(info.FullName);
+                }
+                else
+                {
+                    Logger.Warn($"Missing Asset: '{reference.guid}'");
+                }
+            }
+
+            return files;
+        }
+
 
         /// <summary>
         /// Gets a list of all dependencies from the given files.
@@ -134,35 +211,11 @@ namespace UnityPackageExporter.Dependency
             return scannedGUIDs;
         }
 
-        /// <summary>
-        /// Get's a list of files this asset needs. 
-        /// <para>This is a shallow search</para>
-        /// <remarks>This will not return missing prefabs/assets</remarks>
-        /// </summary>
-        public async Task<IReadOnlyCollection<string>> FindFileDependenciesAsync(string assetPath)
-        {
-            AssetID[] references = await AssetParser.ReadReferencesAsync(assetPath);
-            HashSet<string> files = new HashSet<string>(references.Length);
-            foreach(AssetID reference in references)
-            {
-                if (TryGetFileFromGUID(reference.guid, out var info))
-                {
-                    files.Add(info.FullName);
-                } 
-                else
-                {
-                    Logger.Warn($"Missing Asset: '{reference.guid}'");
-                }
-            }
-
-            return files;
-        }
-
         /// <summary>Get's a list of GUIDs this asset needs.</summary>
         /// <remarks>Unlike file dependencies, this WILL return missing GUIDs, so additional filtering is required.</remarks>
         public async Task<IReadOnlyCollection<string>> FindGUIDDependenciesAsync(string assetPath)
         {
-            AssetID[] references = await AssetParser.ReadReferencesAsync(assetPath);
+            var references = await AssetParser.ParseAssetReferencesAsync(assetPath);
             return references.Select(r => r.guid).Where(guid => guid != null).ToHashSet();
         }
 
