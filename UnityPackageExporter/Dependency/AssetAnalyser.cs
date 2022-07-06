@@ -36,8 +36,12 @@ namespace UnityPackageExporter.Dependency
         }
 
         /// <summary>Adds a list of files to the valid assets to check</summary>
-        public Task AddFilesAsync(IEnumerable<string> files)
-            => Task.WhenAll(files.Select(file => AddFileAsync(file)));
+        public async Task AddFilesAsync(IEnumerable<string> files)
+        {
+            //Task.WhenAll(files.Select(file => AddFileAsync(file)));
+            foreach (var file in files)
+                await AddFileAsync(file);
+        }
 
         /// <summary>
         /// Gets a list of all dependencies for the given list of files
