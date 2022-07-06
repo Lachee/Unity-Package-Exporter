@@ -59,22 +59,50 @@ namespace UnityPackageExporter.Dependency
         }
 
         /// <summary>Adds a file to valid source documents</summary>
-        public async Task AddFileAsync(string file)
+        public async Task<bool> AddFileAsync(string file)
         {
             Logger.Trace("Adding file {0}", file);
+            if (!File.Exists(file))
+            {
+                Logger.Error("File {0} does not exist", file);
+                return false;
+            }
 
-            dependencyCache.Clear();
             var name = Path.GetFileName(file);
             var fileContent = await File.ReadAllTextAsync(file);
+            if (string.IsNullOrWhiteSpace(fileContent))
+            {
+                Logger.Error("File {0} source is empty", file);
+                return false;
+            }
+
             var src = SourceText.From(fileContent);
+            if (src == null)
+            {
+                Logger.Error("File {0} source is invalid", file);
+                return false;
+            }
+
+            dependencyCache.Clear();
             var doc = project.AddDocument(name, src, filePath: file);
+            if (src == null)
+            {
+                Logger.Error("File {0} document is invalid", file);
+                return false;
+            }
+
             project = doc.Project;
             documents.Add(file, doc);
+            return true;
         }
 
         /// <summary>Adds a list of documents to valid source documents</summary>
-        public Task AddFilesAsync(IEnumerable<string> files)
-            => Task.WhenAll(files.Select(file => AddFileAsync(file)));
+        public async Task AddFilesAsync(IEnumerable<string> files)
+        {
+            //Task.WhenAll(files.Select(file => AddFileAsync(file)));
+            foreach (var file in files)
+                await AddFileAsync(file);
+        }
         
 
         /// <summary>Perofrms a deep search and finds all the dependencies for this file</summary>

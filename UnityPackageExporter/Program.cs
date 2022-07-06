@@ -63,7 +63,7 @@ namespace UnityPackageExporter
             var verboseOpt = new Option<NLog.LogLevel>(
                 aliases: new[] { "--verbose", "--log-level", "-v" },
                 description: "Sets the logging level",
-                getDefaultValue: () => NLog.LogLevel.Info
+                getDefaultValue: () => NLog.LogLevel.Trace
             );
 
             //var command = new Command(name: "pack", description: "Packs the assets in a Unity Project")
