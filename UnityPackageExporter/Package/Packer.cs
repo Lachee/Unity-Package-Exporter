@@ -61,9 +61,20 @@ namespace UnityPackageExporter.Package
         /// <returns>If the asset was written to the pack. </returns>
         public async Task<bool> AddAssetAsync(string filePath)
         {
-            FileInfo file = new FileInfo(Path.GetExtension(filePath) == ".meta" ? filePath.Substring(0, filePath.Length - 5) : filePath); 
-            if (!file.Exists) throw new FileNotFoundException();
-            if (!_files.Add(file.FullName)) return false;
+            FileInfo file = new FileInfo(Path.GetExtension(filePath) == ".meta" ? filePath.Substring(0, filePath.Length - 5) : filePath);
+            if (!file.Exists)
+            {
+                if (Directory.Exists(file.FullName))
+                {
+                    Logger.Warn($"Attempted to add a folder {file.FullName} as a file. This is not supported.");
+                    return false;
+                }
+
+                throw new FileNotFoundException($"Could not find the file {file.FullName}");
+            }
+             
+            if (!_files.Add(file.FullName)) 
+                return false;
 
             string relativePath = Path.GetRelativePath(ProjectPath, file.FullName);
             string metaFile = $"{file.FullName}.meta";
@@ -92,10 +103,19 @@ namespace UnityPackageExporter.Package
                 guidString = metaContents.Substring(guidIndex + 6, 32);
             }
 
-            Logger.Info("Writing File {0} ( {1} )", relativePath, guidString);
-            await _tarStream.WriteFileAsync(file.FullName, $"{guidString}/asset");
-            await _tarStream.WriteAllTextAsync($"{guidString}/asset.meta", metaContents);
-            await _tarStream.WriteAllTextAsync($"{guidString}/pathname", relativePath.Replace('\\', '/'));
+            try
+            {
+                Logger.Info("Writing File {0} ( {1} )", relativePath, guidString);
+                await _tarStream.WriteFileAsync(file.FullName, $"{guidString}/asset");
+                await _tarStream.WriteAllTextAsync($"{guidString}/asset.meta", metaContents);
+                await _tarStream.WriteAllTextAsync($"{guidString}/pathname", relativePath.Replace('\\', '/'));
+            }
+            catch(FileNotFoundException fnf)
+            {
+                Logger.Error($"Failed to write: {fnf.Message}");
+                return false;
+            }
+
             return true;
         }
 
