@@ -49,7 +49,7 @@ namespace UnityPackageExporter
             );
 
             var skipDepOpt = new Option<bool>(
-                aliases: new[] { "--skip-dependecy-check" },
+                aliases: new[] { "--skip-dependency-check" },
                 description: "Skips dependency analysis. Disabling this feature may result in missing assets in your packages.",
                 getDefaultValue: () => false
             );
