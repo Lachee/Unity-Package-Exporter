@@ -39,11 +39,16 @@ jobs:
           - contained: false
             name: ''
     runs-on: ${{ matrix.os }}
+    needs: [ tag ]
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v3
       - uses: actions/setup-dotnet@v2
-
+      - name: Apply Tag
+        shell: pwsh
+        run: |
+          ./.github/workflows/scripts/PatchProjectVersion.ps1 ${{needs.tag.outputs.version}}
+          
       - name: Publish
         run: dotnet publish -c Release -o UnityPackageExporter/bin -r ${{matrix.runtime}} --self-contained ${{matrix.contained}} UnityPackageExporter
       - name: Upload Artifact
@@ -61,7 +66,8 @@ jobs:
       - uses: actions/setup-dotnet@v2
       - name: Apply Tag
         shell: pwsh
-        run: ./.github/workflows/scripts/PatchProjectVersion.ps1 ${{needs.tag.outputs.version}}
+        run: |
+          ./.github/workflows/scripts/PatchProjectVersion.ps1 ${{needs.tag.outputs.version}}
 
       - name: Build Nuget
         run: dotnet pack UnityPackageExporter -c Release
@@ -84,10 +90,10 @@ jobs:
       - name: Collate Artifacts
         run: |
           cd artifacts
+          for i in */; do zip -r "release/${i%/}.zip" "$i"; done
+          rm release/UnityPackageExporter-Nuget.zip          
           mkdir release
           cp **/*.nupkg release/
-          for i in */; do zip -r "release/${i%/}.zip" "$i"; done
-          rm release/UnityPackageExporter-Nuget.zip
 
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
