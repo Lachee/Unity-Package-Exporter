@@ -1,4 +1,4 @@
-name: Build Release
+name: Build 📦
 
 on:
   push:
@@ -48,7 +48,7 @@ jobs:
         shell: pwsh
         run: |
           ./.github/workflows/scripts/PatchProjectVersion.ps1 ${{needs.tag.outputs.version}}
-          
+
       - name: Publish
         run: dotnet publish -c Release -o UnityPackageExporter/bin -r ${{matrix.runtime}} --self-contained ${{matrix.contained}} UnityPackageExporter
       - name: Upload Artifact
