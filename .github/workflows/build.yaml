@@ -68,7 +68,7 @@ jobs:
       - name: Upload Nuget
         uses: actions/upload-artifact@v3.0.0
         with:
-          name: "netstandard2.0-nuget"
+          name: "UnityPackageExporter-Nuget"
           path: "UnityPackageExporter/bin/*.nupkg"
 
   # Update the release
@@ -81,10 +81,18 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           path: artifacts
+      - name: Collate Artifacts
+        run: |
+          cd artifacts
+          mkdir release
+          cp **/*.nupkg release/
+          for i in */; do zip -r "release/${i%/}.zip" "$i"; done
+          rm release/UnityPackageExporter-Nuget.zip
+
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
           automatic_release_tag: ${{ needs.tag.outputs.tag }}
           prerelease: true
           title: Release ${{ needs.tag.outputs.tag }}
-          files: artifacts/**/*
+          files: artifacts/release/*
