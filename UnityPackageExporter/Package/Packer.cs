@@ -19,6 +19,9 @@ namespace UnityPackageExporter.Package
         /// <summary>Output file path. If a stream is given, this is null.</summary>
         public string OutputPath { get; }
 
+        /// <summary>Sub Folder to write assets too</summary>
+        public string SubFolder { get; set; } = "";
+
         private Stream _outStream;
         private GZipOutputStream _gzStream;
         private TarOutputStream _tarStream;
@@ -110,7 +113,7 @@ namespace UnityPackageExporter.Package
                 await _tarStream.WriteFileAsync(file.FullName, $"{guidString}/asset");
                 await _tarStream.WriteAllTextAsync($"{guidString}/asset.meta", metaContents);
 
-                string pathname = relativePath.Replace('\\', '/');
+                string pathname = Path.Combine(SubFolder, relativePath).Replace('\\', '/');
                 if (!pathname.StartsWith("Assets/")) pathname = $"Assets/{pathname}";
                 await _tarStream.WriteAllTextAsync($"{guidString}/pathname", pathname);
             }

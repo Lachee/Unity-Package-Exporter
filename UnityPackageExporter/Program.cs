@@ -6,6 +6,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.CommandLine;
+using System.CommandLine.Binding;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -60,25 +61,33 @@ namespace UnityPackageExporter
                 getDefaultValue: () => "Assets"
             );
 
+            var subFolderOpt = new Option<string>(
+                aliases: new[] { "--sub-folder", "-s" },
+                description: "Sets the child folder to all included files under.",
+                getDefaultValue: () => ""
+            );
+
             var verboseOpt = new Option<NLog.LogLevel>(
                 aliases: new[] { "--verbose", "--log-level", "-v" },
                 description: "Sets the logging level",
                 getDefaultValue: () => NLog.LogLevel.Trace
             );
 
+
             //var command = new Command(name: "pack", description: "Packs the assets in a Unity Project")
             var command = new RootCommand(description: "Packs the assets in a Unity Project")
             {
                 sourceArg,
                 outputArg,
-                assetPatternOpt, 
+                assetPatternOpt,
                 excludePatternOpt,
                 skipDepOpt,
                 assetRootOpt,
+                subFolderOpt,
                 verboseOpt,
             };
 
-            command.SetHandler(async (DirectoryInfo source, FileInfo output, IEnumerable<string> assetPattern, IEnumerable<string> excludePattern, bool skipDep, string assetRoot, NLog.LogLevel verbose) =>
+            command.SetHandler(async (DirectoryInfo source, FileInfo output, IEnumerable<string> assetPattern, IEnumerable<string> excludePattern, bool skipDep, string assetRoot, string subFolder, NLog.LogLevel verbose) =>
             {
                 // Setup the logger
                 // TODO: Make logger setup a middleware in command builder
@@ -100,7 +109,10 @@ namespace UnityPackageExporter
 
                     Stopwatch timer = Stopwatch.StartNew();
                     using DependencyAnalyser analyser = !skipDep ? await DependencyAnalyser.CreateAsync(Path.Combine(source.FullName, assetRoot), excludePattern) : null;
-                    using Packer packer = new Packer(source.FullName, output.FullName);
+                    using Packer packer = new Packer(source.FullName, output.FullName)
+                    {
+                        SubFolder = subFolder
+                    };
 
                     // Match all the assets we need
                     Matcher assetMatcher = new Matcher();
@@ -121,8 +133,17 @@ namespace UnityPackageExporter
                     //await packer.FlushAsync();
                     Logger.Info("Finished Packing in {0}ms", timer.ElapsedMilliseconds);
                 });
-            }, sourceArg, outputArg, assetPatternOpt, excludePatternOpt, skipDepOpt, assetRootOpt, verboseOpt);
+            },  sourceArg,
+                outputArg,
+                assetPatternOpt,
+                excludePatternOpt,
+                skipDepOpt,
+                assetRootOpt,
+                subFolderOpt,
+                verboseOpt);
 
+            //This is a good alternative but ordering breaks
+            // var opts = command.Children.Select(arg => arg as IValueDescriptor).ToArray();
             return command;
         }
 
