@@ -49,6 +49,7 @@ namespace UnityPackageExporter.Package
             _files = new HashSet<string>();
             _outStream = stream;
             _gzStream = new GZipOutputStream(_outStream);
+            _gzStream.FileName = "archtemp.tar";
             _tarStream = new TarOutputStream(_gzStream);
 
         }
@@ -108,7 +109,10 @@ namespace UnityPackageExporter.Package
                 Logger.Info("Writing File {0} ( {1} )", relativePath, guidString);
                 await _tarStream.WriteFileAsync(file.FullName, $"{guidString}/asset");
                 await _tarStream.WriteAllTextAsync($"{guidString}/asset.meta", metaContents);
-                await _tarStream.WriteAllTextAsync($"{guidString}/pathname", relativePath.Replace('\\', '/'));
+
+                string pathname = relativePath.Replace('\\', '/');
+                if (!pathname.StartsWith("Assets/")) pathname = $"Assets/{pathname}";
+                await _tarStream.WriteAllTextAsync($"{guidString}/pathname", pathname);
             }
             catch(FileNotFoundException fnf)
             {
